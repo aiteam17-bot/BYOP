@@ -1,3 +1,5 @@
+import Link from "next/link";
+
 export default function Home() {
   return (
     <main className="flex flex-1 flex-col items-center justify-center bg-zinc-50 px-6 py-24 text-center dark:bg-black">
@@ -8,12 +10,12 @@ export default function Home() {
         Group Trip Planner lets everyone suggest destinations, dates and
         activities, then vote so the group lands on a plan that works for all.
       </p>
-      <button
-        type="button"
+      <Link
+        href="/trips/new"
         className="mt-10 rounded-full bg-zinc-950 px-8 py-3 text-base font-medium text-white transition-colors hover:bg-zinc-800 dark:bg-zinc-50 dark:text-zinc-950 dark:hover:bg-zinc-200"
       >
         Start a trip
-      </button>
+      </Link>
     </main>
   );
 }

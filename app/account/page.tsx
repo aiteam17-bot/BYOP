@@ -1,4 +1,5 @@
 import { Suspense } from "react";
+import Link from "next/link";
 import { redirect } from "next/navigation";
 import { createClient } from "@/lib/supabase/server";
 
@@ -24,6 +25,12 @@ async function AccountDetails() {
       <p className="text-lg text-zinc-700 dark:text-zinc-300">
         Signed in as <strong>{user.email}</strong>
       </p>
+      <Link
+        href="/trips"
+        className="text-base text-zinc-700 underline dark:text-zinc-300"
+      >
+        Go to your trips
+      </Link>
       <form action={signOut}>
         <button
           type="submit"
