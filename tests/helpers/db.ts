@@ -28,7 +28,8 @@ export async function createDb(): Promise<PGlite> {
       as $$ select nullif(current_setting('request.jwt.claim.sub', true), '')::uuid $$;
     grant usage on schema auth, public to anon, authenticated;
     grant execute on function auth.uid() to anon, authenticated;
-    alter default privileges in schema public grant all on tables to anon, authenticated;
+    -- Like a NEW Supabase project: tables created in the SQL editor are NOT
+    -- automatically readable by signed-in users, so 005_grants.sql must do it.
     insert into auth.users values
       ('${ALICE}', 'alice@example.com'),
       ('${BOB}',   'bob@example.com'),
@@ -39,6 +40,7 @@ export async function createDb(): Promise<PGlite> {
   await db.exec(sqlFile("002_trip_flow.sql"));
   await db.exec(sqlFile("003_stay_comparison.sql"));
   await db.exec(sqlFile("004_map_locations.sql"));
+  await db.exec(sqlFile("005_grants.sql"));
   return db;
 }
 
