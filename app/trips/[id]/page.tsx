@@ -2,6 +2,8 @@ import { Suspense } from "react";
 import Link from "next/link";
 import { notFound, redirect } from "next/navigation";
 import { Card, Muted, Shell, inputClass, primaryButton } from "@/components/ui";
+import { TripMap } from "@/components/trip-map";
+import { toMapPlaces } from "@/lib/map-config";
 import { getOrigin } from "@/lib/site";
 import { createClient } from "@/lib/supabase/server";
 import { isUuid } from "@/lib/validation";
@@ -41,6 +43,41 @@ async function TripDetails({ params }: { params: Promise<{ id: string }> }) {
   const answeredCount = members.filter((m) => m.has_answered).length;
 
   const inviteUrl = `${await getOrigin()}/join/${trip.invite_token}`;
+
+  // Places for the map. If the map-locations SQL (004) has not been run yet,
+  // the first query fails, so fall back to names and links without pins.
+  let stayRows: Parameters<typeof toMapPlaces>[0] = [];
+  let itineraryRows: Parameters<typeof toMapPlaces>[1] = [];
+  {
+    const withPins = await Promise.all([
+      supabase
+        .from("stays")
+        .select("id, name, url, latitude, longitude")
+        .eq("trip_id", id),
+      supabase
+        .from("itinerary_items")
+        .select("id, title, place_url, day_number, time, latitude, longitude")
+        .eq("trip_id", id)
+        .order("day_number")
+        .order("time"),
+    ]);
+    if (!withPins[0].error && !withPins[1].error) {
+      stayRows = withPins[0].data ?? [];
+      itineraryRows = withPins[1].data ?? [];
+    } else {
+      const [stays, items] = await Promise.all([
+        supabase.from("stays").select("id, name, url").eq("trip_id", id),
+        supabase
+          .from("itinerary_items")
+          .select("id, title, place_url, day_number, time")
+          .eq("trip_id", id)
+          .order("day_number"),
+      ]);
+      stayRows = (stays.data ?? []).map((s) => ({ ...s, latitude: null, longitude: null }));
+      itineraryRows = (items.data ?? []).map((i) => ({ ...i, latitude: null, longitude: null }));
+    }
+  }
+  const places = toMapPlaces(stayRows, itineraryRows);
 
   return (
     <>
@@ -84,6 +121,10 @@ async function TripDetails({ params }: { params: Promise<{ id: string }> }) {
           </div>
         </Card>
       </div>
+
+      <Card title="Map">
+        <TripMap places={places} />
+      </Card>
 
       <Card title="Stays">
         <div className="flex flex-col gap-3">

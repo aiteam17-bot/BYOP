@@ -98,6 +98,21 @@ export function StayForm({ tripId, today }: { tripId: string; today: string }) {
       </div>
 
       <label className={labelClass}>
+        Map location (optional)
+        <input
+          name="location"
+          placeholder="15.2993, 74.1240"
+          autoComplete="off"
+          className={inputClass}
+        />
+        <span className="text-sm font-normal text-zinc-500">
+          To get this: on openstreetmap.org or Google Maps, right-click the
+          place and copy the coordinates.
+        </span>
+        <FieldError message={errors.location} />
+      </label>
+
+      <label className={labelClass}>
         Cancellation terms (optional)
         <textarea
           name="cancellation_terms"

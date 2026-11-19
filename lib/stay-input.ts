@@ -1,5 +1,7 @@
 // Validation for the "Add a stay" form. Pure functions, shared with the tests.
 import type { Cancellation } from "@/lib/stay-costs";
+import { parseCoordinates } from "@/lib/map-config";
+import { safeHttpUrl } from "@/lib/url";
 import { isRealDate, parseRupees } from "@/lib/validation";
 
 export const CANCELLATION_TYPES: Cancellation[] = [
@@ -21,28 +23,19 @@ export type StayInput = {
   beds: number;
   distance_km: number | null;
   price_checked_on: string;
+  latitude: number | null; // map pin, optional
+  longitude: number | null;
 };
 
 export type StayErrors = Partial<Record<
   | "name" | "url" | "nightly" | "taxes" | "fees" | "cancellation_type"
-  | "cancellation_terms" | "rooms" | "beds" | "distance_km" | "price_checked_on",
+  | "cancellation_terms" | "rooms" | "beds" | "distance_km" | "price_checked_on"
+  | "location",
   string
 >>;
 
-/**
- * Only http(s) links are allowed. Members can write to the database directly,
- * so the page re-checks this before rendering any link (never trust stored
- * text to be safe: a `javascript:` link would run code when clicked).
- */
-export function safeHttpUrl(value: string | null | undefined): string | null {
-  if (!value) return null;
-  try {
-    const url = new URL(value.trim());
-    return url.protocol === "http:" || url.protocol === "https:" ? url.href : null;
-  } catch {
-    return null;
-  }
-}
+// Kept here too so existing imports keep working.
+export { safeHttpUrl };
 
 function text(form: FormData, key: string): string {
   const v = form.get(key);
@@ -104,6 +97,20 @@ export function parseStayInput(
     }
   }
 
+  // Optional map location, pasted as "latitude, longitude".
+  let latitude: number | null = null;
+  let longitude: number | null = null;
+  const locationRaw = text(form, "location");
+  if (locationRaw !== "") {
+    const place = parseCoordinates(locationRaw);
+    if (place.ok) {
+      latitude = place.lat;
+      longitude = place.lng;
+    } else {
+      errors.location = place.error;
+    }
+  }
+
   const checked = text(form, "price_checked_on");
   if (!isRealDate(checked)) {
     errors.price_checked_on = "Enter the date you checked the price";
@@ -127,6 +134,8 @@ export function parseStayInput(
       beds: beds!,
       distance_km: distance,
       price_checked_on: checked,
+      latitude,
+      longitude,
     },
   };
 }

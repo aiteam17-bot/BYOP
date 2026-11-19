@@ -40,8 +40,19 @@ describe("parseStayInput", () => {
         beds: 6,
         distance_km: 2.5,
         price_checked_on: "2026-11-18",
+        latitude: null,
+        longitude: null,
       },
     });
+  });
+
+  it("reads an optional map location as latitude and longitude", () => {
+    const result = parseStayInput(form({ ...valid, location: "15.2993, 74.1240" }), TODAY);
+    expect(result.ok && [result.data.latitude, result.data.longitude]).toEqual([15.2993, 74.124]);
+
+    const bad = parseStayInput(form({ ...valid, location: "somewhere nice" }), TODAY);
+    expect(bad.ok).toBe(false);
+    if (!bad.ok) expect(bad.errors.location).toMatch(/latitude, longitude/);
   });
 
   it("treats missing taxes, fees and distance as zero or unknown", () => {
