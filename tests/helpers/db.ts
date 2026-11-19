@@ -37,6 +37,7 @@ export async function createDb(): Promise<PGlite> {
 
   await db.exec(sqlFile("schema.sql"));
   await db.exec(sqlFile("002_trip_flow.sql"));
+  await db.exec(sqlFile("003_stay_comparison.sql"));
   return db;
 }
 

@@ -85,6 +85,19 @@ async function TripDetails({ params }: { params: Promise<{ id: string }> }) {
         </Card>
       </div>
 
+      <Card title="Stays">
+        <div className="flex flex-col gap-3">
+          <Muted>
+            Paste in places to stay and compare the true cost per person.
+          </Muted>
+          <div>
+            <Link href={`/trips/${id}/stays`} className={primaryButton}>
+              Compare stays
+            </Link>
+          </div>
+        </div>
+      </Card>
+
       <Card title={`Who has answered (${answeredCount} of ${members.length})`}>
         <ul className="flex flex-col divide-y divide-zinc-200 dark:divide-zinc-800">
           {members.map((m) => (

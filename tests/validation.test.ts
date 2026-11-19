@@ -101,8 +101,27 @@ describe("parseTripInput", () => {
       ok: true,
       name: "Goa",
       destination: null,
+      startDate: null,
+      endDate: null,
     });
     expect(parseTripInput(form({ name: "  " })).ok).toBe(false);
+  });
+
+  it("accepts dates only as a valid pair, end after start", () => {
+    const ok = parseTripInput(
+      form({ name: "Goa", start_date: "2026-12-10", end_date: "2026-12-14" }),
+    );
+    expect(ok.ok && [ok.startDate, ok.endDate]).toEqual(["2026-12-10", "2026-12-14"]);
+
+    for (const bad of [
+      { start_date: "2026-12-10", end_date: "" }, // only one date
+      { start_date: "2026-12-14", end_date: "2026-12-10" }, // backwards
+      { start_date: "2026-12-10", end_date: "2026-12-10" }, // zero nights
+      { start_date: "2026-02-31", end_date: "2026-03-05" }, // not a real day
+      { start_date: "2026-01-01", end_date: "2026-06-01" }, // far too long
+    ]) {
+      expect(parseTripInput(form({ name: "Goa", ...bad })).ok).toBe(false);
+    }
   });
 });
 

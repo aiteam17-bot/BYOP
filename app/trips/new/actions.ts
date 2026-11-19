@@ -23,7 +23,12 @@ export async function createTrip(
   // creator the trip's first member (role: owner).
   const { data, error } = await supabase
     .from("trips")
-    .insert({ name: parsed.name, destination: parsed.destination })
+    .insert({
+      name: parsed.name,
+      destination: parsed.destination,
+      start_date: parsed.startDate,
+      end_date: parsed.endDate,
+    })
     .select("id")
     .single();
 

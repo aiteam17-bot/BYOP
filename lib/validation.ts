@@ -149,10 +149,59 @@ export function paiseToRupeesString(paise: number | null | undefined): string {
   return frac === 0 ? String(whole) : `${whole}.${String(frac).padStart(2, "0")}`;
 }
 
+/** True for a real calendar date written as YYYY-MM-DD (rejects 2026-02-31). */
+export function isRealDate(value: string): boolean {
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(value)) return false;
+  const [y, m, d] = value.split("-").map(Number);
+  const date = new Date(Date.UTC(y, m - 1, d));
+  return (
+    date.getUTCFullYear() === y &&
+    date.getUTCMonth() === m - 1 &&
+    date.getUTCDate() === d
+  );
+}
+
+const MAX_NIGHTS = 60;
+
+/** Both dates or neither; the end must be after the start. */
+export function parseTripDates(
+  startRaw: string,
+  endRaw: string,
+):
+  | { ok: true; startDate: string | null; endDate: string | null }
+  | { ok: false; error: string } {
+  const start = startRaw.trim();
+  const end = endRaw.trim();
+  if (start === "" && end === "") {
+    return { ok: true, startDate: null, endDate: null };
+  }
+  if (start === "" || end === "") {
+    return { ok: false, error: "Enter both a start date and an end date" };
+  }
+  if (!isRealDate(start) || !isRealDate(end)) {
+    return { ok: false, error: "Enter real dates" };
+  }
+  const nights = Math.round(
+    (Date.parse(`${end}T00:00:00Z`) - Date.parse(`${start}T00:00:00Z`)) /
+      86_400_000,
+  );
+  if (nights < 1) return { ok: false, error: "The end date must be after the start date" };
+  if (nights > MAX_NIGHTS) {
+    return { ok: false, error: `Trips can be at most ${MAX_NIGHTS} nights` };
+  }
+  return { ok: true, startDate: start, endDate: end };
+}
+
 export function parseTripInput(
   form: FormData,
 ):
-  | { ok: true; name: string; destination: string | null }
+  | {
+      ok: true;
+      name: string;
+      destination: string | null;
+      startDate: string | null;
+      endDate: string | null;
+    }
   | { ok: false; error: string } {
   const name = text(form, "name");
   const destination = text(form, "destination");
@@ -161,5 +210,13 @@ export function parseTripInput(
   if (destination.length > 80) {
     return { ok: false, error: "Keep the destination under 80 characters" };
   }
-  return { ok: true, name, destination: destination === "" ? null : destination };
+  const dates = parseTripDates(text(form, "start_date"), text(form, "end_date"));
+  if (!dates.ok) return dates;
+  return {
+    ok: true,
+    name,
+    destination: destination === "" ? null : destination,
+    startDate: dates.startDate,
+    endDate: dates.endDate,
+  };
 }
