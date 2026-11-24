@@ -11,7 +11,57 @@ mock APIs, simulated AI or invented prices. Test fixtures exist only inside
 - Plan: [REAL_BUILD_PLAN.md](REAL_BUILD_PLAN.md) (screen map, provider
   dependencies, migration plan, seven-stage checklist)
 
-## Latest: Supabase foundation (migration 007)
+## Latest: fix for "Date.now() while prerendering" (2026-11-24)
+
+Branch `feat/budget-privacy` (not merged, not deployed; migration 008 is not
+applied to production yet).
+
+**Failing checkpoint.** The known issue recorded under the audit: Next.js dev
+server log `.next/dev/logs/next-development.log` lines 13–19:
+`Route "/trips" | "/account" | "/trips/[id]/stays": Next.js encountered the
+unstable value Date.now() while prerendering`. Vercel production runtime logs
+had no matching entries (dev-time validation).
+
+**Smallest cause.** `lib/supabase/server.ts` `createClient()` awaited only
+`cookies()`. With `partialPrefetching` on, Next pre-renders at request time
+with cookies available, so supabase-js's own `Date.now()` (session-expiry
+check in `auth.getUser()`) ran inside that pre-render on every route using
+the server client.
+
+**Fix (one file).** `createClient()` now awaits `connection()` after
+`cookies()`, so Supabase work runs only for the real request. No data, RLS,
+auth or schema change; no existing user record touched.
+
+**Regression test.** `tests/supabase-server.test.ts` asserts the call order
+cookies → connection → createServerClient. Without the fix it failed
+(`- "connection"` missing); with it, it passes.
+
+**Results (exact):**
+```
+$ npx vitest run tests/supabase-server.test.ts -> Tests 1 passed (1)
+$ npx tsc --noEmit                              -> exit 0
+$ npm run lint                                  -> exit 0
+$ npm test                                      -> Test Files 13 passed (13), Tests 181 passed (181)
+$ npm run build                                 -> Compiled successfully, exit 0
+```
+Rerun of the original failure on the running dev server (localhost:3000,
+signed in with GitHub): `/trips/<id>/stays`, `/trips` and `/account` rendered
+with real data; new log lines contain 0 `Date.now()` errors.
+
+Other evidence in the same log, not a code fault: lines 30–33
+`AuthApiError: Invalid Refresh Token: Refresh Token Not Found` when opening
+`/account` on localhost. That session had been revoked by signing out on the
+live site (Supabase `signOut()` defaults to signing out every device); the app
+correctly treated it as signed out.
+
+**Still needs your dashboard action (unchanged by this fix):**
+- `npm run test:api` fails before running: `.env.test.local` does not exist
+  and Supabase shows only 1 project. It needs a separate test project, and a
+  sign-in route that does not require switching "Confirm email" off.
+- Supabase Email provider is still Enabled in production.
+- Migration 008 is not applied to production (waiting on the above).
+
+## Earlier: Supabase foundation (migration 007)
 
 Date: 2026-11-24. Branch `feat/supabase-foundation`, merged to `main` at
 `8a6668c`. Applied to Supabase project `bbqsuwsloegyjutbefjd` and deployed.
