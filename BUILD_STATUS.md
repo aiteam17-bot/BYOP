@@ -11,7 +11,89 @@ mock APIs, simulated AI or invented prices. Test fixtures exist only inside
 - Plan: [REAL_BUILD_PLAN.md](REAL_BUILD_PLAN.md) (screen map, provider
   dependencies, migration plan, seven-stage checklist)
 
-## Latest: real-build audit and demo-fallback removal
+## Latest: Supabase foundation (migration 007)
+
+Date: 2026-11-24. Branch `feat/supabase-foundation`, merged to `main` at
+`8a6668c`. Applied to Supabase project `bbqsuwsloegyjutbefjd` and deployed.
+
+### What changed
+- **007_foundation.sql** (additive: no rows, tables or columns deleted;
+  policies and grants replaced):
+  - `schema_versions` records migrations 1 to 7 in the database.
+  - Default deny: future objects get no automatic grants; every table and
+    function is granted explicitly; signed-out visitors can run only
+    `health_check()`.
+  - Helpers moved to a `private` schema (not reachable via the API) that
+    answer only for the signed-in user. The old helpers that accepted any
+    user id (`is_trip_member`, `is_trip_owner`, `member_role`,
+    `expense_trip_id`, `can_plan`) and the old `invite_preview` / `join_trip`
+    lost EXECUTE; they remain, unused.
+  - Explicit permission matrix (`private.role_allows`) for owner,
+    co-planner and member; every policy re-created on it with USING and
+    WITH CHECK.
+  - Triggers stop rows moving between trips/people and stop the organiser's
+    membership being removed while the trip exists. No direct membership
+    inserts: joining is by invite only; roles change only via
+    `set_member_role`.
+  - `profiles`, created on sign-up from GitHub details; backfilled for
+    existing accounts.
+  - Invites: `trip_invites` stores only a SHA-256 hash; links expire (1/7/30
+    days) and can be revoked; `preview_invite` shows only the trip name and
+    destination; `redeem_invite` is authenticated, transactional, idempotent
+    and rate limited (10 wrong tokens per 15 minutes). The old plaintext
+    `trips.invite_token` column is kept but no longer readable or writable;
+    existing tokens were copied as hashed invites valid for 7 days.
+- **App**: GitHub-only sign-in (no Supabase default SMTP); proxy verifies the
+  session with `getClaims()`; join flow on `preview_invite` /
+  `redeem_invite`; Decide has create-once / list / revoke for invite links;
+  Account shows the profile name; `/api/health` checks the database.
+
+### Verified (exact commands and real results)
+```
+$ npx tsc --noEmit        -> exit 0
+$ npm run lint            -> exit 0
+$ npm test                -> Test Files 11 passed (11), Tests 157 passed (157)
+                             (25 new in tests/foundation-rls.test.ts)
+$ npm run build           -> Compiled successfully, 15/15 pages
+$ npm run scan:secrets    -> no findings in tracked files, untracked files or
+                             11 commits; .env.local reported by names only; PASS
+```
+Supabase SQL Editor: 007 ran with "Success. No rows returned" (after the
+expected "destructive operation" warning for the policy drops and revokes).
+Read-only check afterwards: versions `1,2,3,4,5,6,7`; tables without RLS 0;
+anon table grants 0; SECURITY DEFINER functions without a pinned
+search_path 0; definer functions executable by anon 0; old
+`is_trip_member` executable by authenticated: false; profiles 10 = users 10;
+trip_invites 1 (the existing trip's link, hashed); trips 1 (kept).
+
+Live on https://byop-iota.vercel.app (signed in with GitHub):
+- `/api/health` → `200 {"status":"ok","database":"ok"}`.
+- Created trip "Foundation check" → organiser membership present ("1 not
+  yet"); after a hard reload it is still there and listed in `/trips`.
+- Decide: "Create invite link" showed the link once (64-hex token) and the
+  list "expires 1 Dec 2026 · 0 joined". Opening it as the organiser showed
+  only the trip name and "You're already on this trip"; "Open the trip" kept
+  "0 joined" and 1 member (idempotent). After "Revoke", the list showed "No
+  active links" and the link showed "This invite link isn't valid".
+- Account: "Signed in as aiteam17-bot" (backfilled profile).
+- Sign out → opening `/trips/<id>/decide` redirected to `/login` (GitHub only);
+  signing in again returned to that exact page.
+
+### Not verified / still to do
+- **Supabase Email provider is still Enabled** (checked 2026-11-24 after
+  setup). The app no longer offers email sign-in, but the provider still
+  accepts email sign-ups through the API. Switch it off: Authentication →
+  Sign In / Providers → Email → disable → Save.
+- A brand-new account seeing no trips is proven in the database tests, not
+  live: it needs a second GitHub account.
+- Between applying 007 and the new deploy (about 1 minute), trip pages on
+  the old deploy could not read `invite_token` and showed the error screen.
+- `npm run test:live` was not run (needs the Email provider on and "Confirm
+  email" off while it runs).
+- Production now holds two test trips by aiteam17-bot: "Decide live check
+  (renamed)" and "Foundation check".
+
+## Earlier: real-build audit and demo-fallback removal
 
 Date: 2026-11-24. Branch: `chore/real-build-audit`. Backup taken first:
 `backup/pre-real-build-audit-2026-11-24` (pushed, = `main` at `d9d8e17`).
@@ -139,6 +221,7 @@ Apply in Supabase → SQL Editor, in order, once each:
 | `supabase/004_map_locations.sql` | applied (checked) |
 | `supabase/005_grants.sql` | applied (checked) |
 | `supabase/006_decide.sql` | applied 2026-11-24 via SQL Editor ("Success. No rows returned") |
+| `supabase/007_foundation.sql` | applied 2026-11-24 via SQL Editor; recorded in `schema_versions` |
 
 006 is additive: new tables, functions, a trigger and two `trip_members`
 columns. It widens the `trip_members.role` check (adds `co_planner`); no data
