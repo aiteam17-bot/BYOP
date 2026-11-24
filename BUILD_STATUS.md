@@ -1,0 +1,124 @@
+# Build status
+
+Real application, not a demo. Production starts empty: no seeded trips, members,
+mock APIs, simulated AI or invented prices. Test fixtures exist only inside
+`tests/` (in-memory Postgres).
+
+- Live URL: https://byop-iota.vercel.app (Vercel Hobby, deploys `main`)
+- Database/Auth: Supabase project `bbqsuwsloegyjutbefjd` (Free plan)
+- Stack: Next.js 16 App Router + TypeScript, Supabase Postgres/Auth with RLS,
+  Tailwind CSS 4, Vitest + PGlite for database tests
+
+## Current stage: 01 Trip home + 02 Decide (PRD part 1, planning)
+
+Date: 2026-11-24. Branch: `feat/decide-stage`.
+
+### What was built
+
+**01 Trip home** (`/trips/[id]`)
+- Trip name, where/when (or "still to be decided"), member avatars.
+- Stage tabs in PRD order: Decide, Shape, Book, Prepare (`?tab=`).
+  - Decide: who's coming, dates, preference cards, destination, each linking
+    into 02.
+  - Shape: the existing map; itinerary builder marked "not built yet".
+  - Book: the existing stay comparison.
+  - Prepare: marked "not built yet"; nothing saved.
+- One **Next step** card. Plain rules in `lib/decide.ts`, not AI, in Decide
+  order: your RSVP, your dates vote, your private card, your destination vote,
+  suggest dates/destination, (planners) settle a fully-voted poll, who the group
+  is waiting on, then "Decide is done". Shows who nudged you.
+
+**02 Decide** (`/trips/[id]/decide`), in PRD order
+1. Trip name: editable by organiser or co-planner.
+2. Invite link and roles: copy link; organiser sets Co-planner / Traveller.
+3. Who's coming: your RSVP (In / Maybe / Not yet), group counts, everyone's
+   status, Nudge for anyone "Not yet".
+4. Dates vote: anyone suggests date ranges; one vote per person (changing it
+   replaces it); counts and voter names; who still has to vote, with Nudge;
+   organiser/co-planner settles (writes the trip's dates) or reopens.
+5. Private preference card link (existing; answers stay private).
+6. Destination vote: same mechanics; settling writes the trip's destination.
+
+Loading skeletons, empty states, an error screen with "Try again"
+(`app/trips/[id]/error.tsx`), pending button states, error/success messages
+announced to screen readers, 44px touch targets, mobile-first layouts.
+
+### Security model
+- Every mutation is a server action that checks the session, validates input,
+  then calls ONE `security definer` Postgres function that re-checks
+  membership and role, validates again, and runs as one transaction.
+- New tables (`polls`, `poll_options`, `poll_votes`, `nudges`) are read-only to
+  signed-in members via RLS; there are no insert/update/delete grants, so the
+  public API cannot write them directly.
+- A trigger on `trip_members` stops the organiser changing anyone else's RSVP
+  and keeps the organiser role tied to the trip creator, even through direct
+  table updates the older policy allows.
+- No service-role key anywhere. Reads are per request, scoped by RLS to the
+  signed-in user's trips; nothing is cached across users.
+- Retry-safe: same suggestion twice returns the same option; re-voting is an
+  upsert; settling the same option twice is a no-op; nudges are limited to one
+  per person per topic per 12 hours.
+
+### Migrations
+
+Apply in Supabase → SQL Editor, in order, once each:
+
+| File | Status on `bbqsuwsloegyjutbefjd` |
+|---|---|
+| `supabase/schema.sql` | applied (checked 2026-11-24) |
+| `supabase/002_trip_flow.sql` | applied (checked) |
+| `supabase/003_stay_comparison.sql` | applied (checked) |
+| `supabase/004_map_locations.sql` | applied (checked) |
+| `supabase/005_grants.sql` | applied (checked) |
+| `supabase/006_decide.sql` | **NOT applied yet** (see setup) |
+
+006 is additive: new tables, functions, a trigger and two `trip_members`
+columns. It widens the `trip_members.role` check (adds `co_planner`); no data
+is dropped or rewritten. Check run on 2026-11-24: `trips` had 0 rows.
+
+### Verified (exact commands, real results, 2026-11-24)
+
+```
+$ npx tsc --noEmit        -> exit 0
+$ npm run lint            -> exit 0, no warnings
+$ npm test                -> Test Files 9 passed (9), Tests 128 passed (128)
+$ npm run build           -> Compiled successfully; /trips/[id] and
+                             /trips/[id]/decide built as partial prerender
+```
+
+New tests:
+- `tests/decide-rls.test.ts` (28 tests): runs the real migrations in PGlite
+  and checks roles, RSVP, votes, settle/reopen, nudges, direct-write blocking,
+  outsider and signed-out access.
+- `tests/decide.test.ts` (18 tests): next-step rules, poll tallies, decision
+  states, formatting, input parsing.
+
+**Not verified end to end:** Decide has not run against the real Supabase
+project yet, because 006 is not applied there. The live site still runs the
+previous commit. Do not treat Decide as live until the checks below pass.
+
+### Setup still needed
+1. Apply `supabase/006_decide.sql` in the Supabase SQL Editor.
+2. Push `feat/decide-stage` and merge to `main` (Vercel deploys `main`).
+3. Real check on https://byop-iota.vercel.app with two GitHub accounts: create a
+   trip, join via invite, RSVP, suggest and vote on dates and a destination,
+   nudge, settle as organiser, make the friend co-planner.
+4. Optional: `npm run test:live` needs Supabase "Confirm email" switched off
+   while it runs. It has not been run for this stage.
+
+### Known limits
+- Nudges are in-app only (shown on the recipient's next-step card). No email,
+  push or chat messages are sent.
+- Any member can suggest options and nudge; only the organiser or a co-planner
+  settles. There is no fixed approval threshold.
+- Reopening a vote keeps the trip's current dates/destination until it is
+  settled again.
+- No way yet to remove a member or transfer the organiser role.
+- The PRD's "AI best window" for dates and the anonymous budget band (03) are
+  not part of this stage; the next-step card is rule-based, not AI.
+- Display names come from the join form or the email's first part.
+- Not yet tested with a screen reader.
+
+### Next checkpoint
+03 Anonymous budget: private per-member range, group sees only a rounded
+comfort zone once at least 3 have answered, enforced in the database.

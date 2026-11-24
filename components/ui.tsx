@@ -14,12 +14,18 @@ export function Shell({ children }: { children: ReactNode }) {
 export function Card({
   title,
   children,
+  id,
 }: {
   title?: string;
   children: ReactNode;
+  id?: string;
 }) {
   return (
-    <section className="rounded-xl border border-zinc-200 bg-white p-6 dark:border-zinc-800 dark:bg-zinc-950 max-md:p-4">
+    <section
+      id={id}
+      aria-label={title}
+      className="scroll-mt-4 rounded-xl border border-zinc-200 bg-white p-6 dark:border-zinc-800 dark:bg-zinc-950 max-md:p-4"
+    >
       {title && (
         <h2 className="mb-4 text-lg font-semibold text-zinc-950 dark:text-zinc-50">
           {title}
@@ -32,6 +38,12 @@ export function Card({
 
 export const primaryButton =
   "inline-flex items-center justify-center rounded-full bg-zinc-950 px-6 py-2.5 text-base font-medium text-white transition-colors hover:bg-zinc-800 disabled:opacity-60 dark:bg-zinc-50 dark:text-zinc-950 dark:hover:bg-zinc-200 max-md:w-full";
+
+export const smallButton =
+  "inline-flex min-h-11 items-center justify-center rounded-full border border-zinc-300 px-4 py-1.5 text-sm font-medium text-zinc-900 transition-colors hover:bg-zinc-100 disabled:opacity-60 dark:border-zinc-700 dark:text-zinc-100 dark:hover:bg-zinc-900";
+
+export const smallPrimaryButton =
+  "inline-flex min-h-11 items-center justify-center rounded-full bg-zinc-950 px-4 py-1.5 text-sm font-medium text-white transition-colors hover:bg-zinc-800 disabled:opacity-60 dark:bg-zinc-50 dark:text-zinc-950 dark:hover:bg-zinc-200";
 
 export const secondaryButton =
   "inline-flex items-center justify-center rounded-full border border-zinc-300 px-6 py-2.5 text-base font-medium text-zinc-900 transition-colors hover:bg-zinc-100 dark:border-zinc-700 dark:text-zinc-100 dark:hover:bg-zinc-900 max-md:w-full";

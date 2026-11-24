@@ -1,193 +1,259 @@
 import { Suspense } from "react";
 import Link from "next/link";
-import { notFound, redirect } from "next/navigation";
-import { Card, Muted, Shell, inputClass, primaryButton } from "@/components/ui";
+import { MemberStack } from "@/components/member-avatar";
+import { Card, Muted, Shell, primaryButton, smallPrimaryButton } from "@/components/ui";
 import { TripMap } from "@/components/trip-map";
+import {
+  RSVP_LABELS,
+  computeNextStep,
+  decidedText,
+  decisionState,
+  rsvpCounts,
+  summarizePoll,
+  type PollKind,
+} from "@/lib/decide";
 import { toMapPlaces } from "@/lib/map-config";
-import { getOrigin } from "@/lib/site";
 import { createClient } from "@/lib/supabase/server";
-import { isUuid } from "@/lib/validation";
-import { CopyButton } from "./copy-button";
+import { loadTripContext, type TripContext } from "@/lib/trip-data";
 
-type Member = {
-  user_id: string;
-  display_name: string;
-  role: string;
-  has_answered: boolean;
-};
+const TABS = [
+  { key: "decide", label: "Decide" },
+  { key: "shape", label: "Shape" },
+  { key: "book", label: "Book" },
+  { key: "prepare", label: "Prepare" },
+] as const;
+type TabKey = (typeof TABS)[number]["key"];
 
-async function TripDetails({ params }: { params: Promise<{ id: string }> }) {
-  const { id } = await params;
-  if (!isUuid(id)) notFound();
+function tabFrom(value: string | string[] | undefined): TabKey {
+  return TABS.some((t) => t.key === value) ? (value as TabKey) : "decide";
+}
 
-  const supabase = await createClient();
-  const {
-    data: { user },
-  } = await supabase.auth.getUser();
-  if (!user) redirect("/login");
+function targetHref(tripId: string, target: string): string {
+  if (target.startsWith("?")) return `/trips/${tripId}${target}`;
+  return `/trips/${tripId}/${target}`;
+}
 
-  // Row-level security means this returns nothing unless you belong to the trip.
-  const { data: trip } = await supabase
-    .from("trips")
-    .select("id, name, destination, invite_token")
-    .eq("id", id)
-    .maybeSingle();
-  if (!trip) notFound();
-
-  // Names and an answered yes/no only. Nobody's actual answers come back.
-  const { data: rows } = await supabase.rpc("trip_response_status", {
-    _trip_id: id,
+function NextStepCard({ ctx }: { ctx: TripContext }) {
+  const step = computeNextStep({
+    meId: ctx.userId,
+    members: ctx.members,
+    trip: ctx.trip,
+    polls: ctx.polls,
+    myCardAnswered: ctx.myCardAnswered,
+    nudges: ctx.nudgesToMe,
   });
-  const members = (rows ?? []) as Member[];
-  const me = members.find((m) => m.user_id === user.id);
-  const answeredCount = members.filter((m) => m.has_answered).length;
+  return (
+    <section
+      aria-labelledby="next-step-title"
+      className="flex flex-col gap-3 rounded-xl border-2 border-zinc-900 bg-white p-6 dark:border-zinc-100 dark:bg-zinc-950 max-md:p-4"
+    >
+      <p className="text-xs font-semibold uppercase tracking-wide text-zinc-500">Next step</p>
+      <h2 id="next-step-title" className="text-xl font-semibold text-zinc-950 dark:text-zinc-50">
+        {step.title}
+      </h2>
+      {step.nudgedBy && (
+        <p className="text-sm font-medium text-amber-800 dark:text-amber-300">
+          {step.nudgedBy} asked you about this.
+        </p>
+      )}
+      <Muted>{step.detail}</Muted>
+      <div>
+        <Link href={targetHref(ctx.trip.id, step.target)} className={primaryButton}>
+          {step.cta}
+        </Link>
+      </div>
+    </section>
+  );
+}
 
-  const inviteUrl = `${await getOrigin()}/join/${trip.invite_token}`;
+function decisionLine(ctx: TripContext, kind: PollKind): string {
+  const poll = ctx.polls[kind];
+  const state = decisionState(kind, ctx.trip, poll);
+  if (state === "decided") return decidedText(kind, ctx.trip) ?? "Decided";
+  if (state === "empty" || !poll) return "Nothing suggested yet";
+  const summary = summarizePoll(poll, ctx.members);
+  return `Voting: ${poll.options.length} option${poll.options.length === 1 ? "" : "s"}, ${summary.votedIds.length} of ${ctx.members.length} voted`;
+}
 
-  // Places for the map. If the map-locations SQL (004) has not been run yet,
-  // the first query fails, so fall back to names and links without pins.
-  let stayRows: Parameters<typeof toMapPlaces>[0] = [];
-  let itineraryRows: Parameters<typeof toMapPlaces>[1] = [];
-  {
-    const withPins = await Promise.all([
-      supabase
-        .from("stays")
-        .select("id, name, url, latitude, longitude")
-        .eq("trip_id", id),
-      supabase
-        .from("itinerary_items")
-        .select("id, title, place_url, day_number, time, latitude, longitude")
-        .eq("trip_id", id)
-        .order("day_number")
-        .order("time"),
-    ]);
-    if (!withPins[0].error && !withPins[1].error) {
-      stayRows = withPins[0].data ?? [];
-      itineraryRows = withPins[1].data ?? [];
-    } else {
-      const [stays, items] = await Promise.all([
-        supabase.from("stays").select("id, name, url").eq("trip_id", id),
-        supabase
-          .from("itinerary_items")
-          .select("id, title, place_url, day_number, time")
-          .eq("trip_id", id)
-          .order("day_number"),
-      ]);
-      stayRows = (stays.data ?? []).map((s) => ({ ...s, latitude: null, longitude: null }));
-      itineraryRows = (items.data ?? []).map((i) => ({ ...i, latitude: null, longitude: null }));
-    }
-  }
-  const places = toMapPlaces(stayRows, itineraryRows);
+function DecideTab({ ctx }: { ctx: TripContext }) {
+  const counts = rsvpCounts(ctx.members);
+  const rows = [
+    {
+      label: "Who's coming",
+      value: `${counts.in} in · ${counts.maybe} maybe · ${counts.not_yet} not yet`,
+      href: "decide#who",
+    },
+    { label: "Dates", value: decisionLine(ctx, "dates"), href: "decide#dates" },
+    {
+      label: "Preference cards",
+      value: `${ctx.cardsAnswered} of ${ctx.members.length} filled in (answers stay private)`,
+      href: "preferences",
+    },
+    { label: "Destination", value: decisionLine(ctx, "destination"), href: "decide#destination" },
+  ];
+  return (
+    <Card>
+      <ul className="flex flex-col divide-y divide-zinc-200 dark:divide-zinc-800">
+        {rows.map((row) => (
+          <li key={row.label}>
+            <Link
+              href={targetHref(ctx.trip.id, row.href)}
+              className="flex min-h-11 items-center justify-between gap-4 py-3 hover:underline"
+            >
+              <span className="flex flex-col">
+                <span className="font-medium text-zinc-950 dark:text-zinc-50">{row.label}</span>
+                <span className="text-sm text-zinc-600 dark:text-zinc-400">{row.value}</span>
+              </span>
+              <span aria-hidden="true" className="text-zinc-400">
+                →
+              </span>
+            </Link>
+          </li>
+        ))}
+      </ul>
+      <div className="mt-4 flex flex-wrap items-center gap-4">
+        <Link href={`/trips/${ctx.trip.id}/decide`} className={smallPrimaryButton}>
+          Open Decide
+        </Link>
+        <span className="text-sm text-zinc-500">Your RSVP: {RSVP_LABELS[ctx.me.rsvp]}</span>
+      </div>
+    </Card>
+  );
+}
 
+async function ShapeTab({ tripId }: { tripId: string }) {
+  const supabase = await createClient();
+  const [stays, items] = await Promise.all([
+    supabase.from("stays").select("id, name, url, latitude, longitude").eq("trip_id", tripId),
+    supabase
+      .from("itinerary_items")
+      .select("id, title, place_url, day_number, time, latitude, longitude")
+      .eq("trip_id", tripId)
+      .order("day_number")
+      .order("time"),
+  ]);
+  if (stays.error || items.error) throw new Error("Could not load the map");
+  const places = toMapPlaces(stays.data ?? [], items.data ?? []);
   return (
     <>
-      <div className="flex flex-col gap-2">
-        <h1 className="text-3xl font-semibold tracking-tight text-zinc-950 dark:text-zinc-50">
-          {trip.name}
-        </h1>
-        {trip.destination && <Muted>{trip.destination}</Muted>}
-      </div>
-
-      <div className="grid grid-cols-2 gap-6 max-md:grid-cols-1">
-        <Card title="Invite your friends">
-          <div className="flex flex-col gap-3">
-            <Muted>
-              Send this link. Anyone who opens it and signs in can join.
-            </Muted>
-            <input
-              readOnly
-              value={inviteUrl}
-              aria-label="Invite link"
-              onFocus={(e) => e.currentTarget.select()}
-              className={inputClass}
-            />
-            <div>
-              <CopyButton value={inviteUrl} />
-            </div>
-          </div>
-        </Card>
-
-        <Card title="Your preference card">
-          <div className="flex flex-col gap-3">
-            <Muted>
-              Tell us your budget, pace and must-sees. Only you can see your
-              answers.
-            </Muted>
-            <div>
-              <Link href={`/trips/${id}/preferences`} className={primaryButton}>
-                {me?.has_answered ? "Edit your answers" : "Fill in your card"}
-              </Link>
-            </div>
-          </div>
-        </Card>
-      </div>
-
       <Card title="Map">
         <TripMap places={places} />
       </Card>
-
-      <Card title="Stays">
-        <div className="flex flex-col gap-3">
-          <Muted>
-            Paste in places to stay and compare the true cost per person.
-          </Muted>
-          <div>
-            <Link href={`/trips/${id}/stays`} className={primaryButton}>
-              Compare stays
-            </Link>
-          </div>
-        </div>
+      <Card title="Itinerary">
+        <Muted>The day-by-day itinerary builder is not built yet. It is the next planning screen.</Muted>
       </Card>
+    </>
+  );
+}
 
-      <Card title={`Who has answered (${answeredCount} of ${members.length})`}>
-        <ul className="flex flex-col divide-y divide-zinc-200 dark:divide-zinc-800">
-          {members.map((m) => (
-            <li
-              key={m.user_id}
-              className="flex items-center justify-between gap-4 py-3"
-            >
-              <span className="text-zinc-950 dark:text-zinc-50">
-                {m.display_name}
-                {m.role === "owner" && (
-                  <span className="ml-2 text-sm text-zinc-500">organiser</span>
-                )}
-                {m.user_id === user.id && (
-                  <span className="ml-2 text-sm text-zinc-500">you</span>
-                )}
-              </span>
-              <span
-                className={
-                  m.has_answered
-                    ? "text-sm font-medium text-green-700 dark:text-green-400"
-                    : "text-sm text-zinc-500"
-                }
+function BookTab({ tripId }: { tripId: string }) {
+  return (
+    <Card title="Stays">
+      <div className="flex flex-col gap-3">
+        <Muted>Paste in places to stay and compare the true cost per person.</Muted>
+        <div>
+          <Link href={`/trips/${tripId}/stays`} className={smallPrimaryButton}>
+            Compare stays
+          </Link>
+        </div>
+      </div>
+    </Card>
+  );
+}
+
+function PrepareTab() {
+  return (
+    <Card title="Prepare">
+      <Muted>
+        Expense split setup, packing checklist and offline downloads are not built yet. Nothing
+        here is saved or shared.
+      </Muted>
+    </Card>
+  );
+}
+
+async function TripHome({
+  params,
+  searchParams,
+}: {
+  params: Promise<{ id: string }>;
+  searchParams: Promise<Record<string, string | string[] | undefined>>;
+}) {
+  const [{ id }, query] = await Promise.all([params, searchParams]);
+  const ctx = await loadTripContext(id);
+  const tab = tabFrom(query.tab);
+  const when = decidedText("dates", ctx.trip);
+  const where = decidedText("destination", ctx.trip);
+
+  return (
+    <>
+      <header className="flex flex-col gap-3">
+        <h1 className="text-3xl font-semibold tracking-tight text-zinc-950 dark:text-zinc-50">
+          {ctx.trip.name}
+        </h1>
+        <Muted>
+          {where || when
+            ? [where, when].filter(Boolean).join(" · ")
+            : "Where and when are still to be decided"}
+        </Muted>
+        <MemberStack members={ctx.members} />
+      </header>
+
+      <NextStepCard ctx={ctx} />
+
+      <nav aria-label="Planning stages">
+        <ul className="grid grid-cols-4 gap-1 rounded-full bg-zinc-100 p-1 dark:bg-zinc-900">
+          {TABS.map((t) => (
+            <li key={t.key}>
+              <Link
+                href={`/trips/${id}?tab=${t.key}`}
+                aria-current={tab === t.key ? "page" : undefined}
+                className={`flex min-h-11 items-center justify-center rounded-full px-2 text-sm font-medium ${
+                  tab === t.key
+                    ? "bg-white text-zinc-950 shadow-sm dark:bg-zinc-800 dark:text-zinc-50"
+                    : "text-zinc-600 hover:text-zinc-950 dark:text-zinc-400 dark:hover:text-zinc-50"
+                }`}
               >
-                {m.has_answered ? "Answered" : "Waiting"}
-              </span>
+                {t.label}
+              </Link>
             </li>
           ))}
         </ul>
-        <p className="mt-4 text-sm text-zinc-500">
-          You can see who has answered, never what they said. Everyone&apos;s
-          answers stay private, including from the organiser.
-        </p>
-      </Card>
+      </nav>
+
+      {tab === "decide" && <DecideTab ctx={ctx} />}
+      {tab === "shape" && (
+        <Suspense fallback={<Muted>Loading map…</Muted>}>
+          <ShapeTab tripId={id} />
+        </Suspense>
+      )}
+      {tab === "book" && <BookTab tripId={id} />}
+      {tab === "prepare" && <PrepareTab />}
     </>
   );
 }
 
 export default function TripPage({
   params,
+  searchParams,
 }: {
   params: Promise<{ id: string }>;
+  searchParams: Promise<Record<string, string | string[] | undefined>>;
 }) {
   return (
     <Shell>
       <Link href="/trips" className="text-sm text-zinc-600 underline dark:text-zinc-400">
         ← Your trips
       </Link>
-      <Suspense fallback={<Muted>Loading trip…</Muted>}>
-        <TripDetails params={params} />
+      <Suspense
+        fallback={
+          <div className="flex flex-col gap-6" aria-busy="true">
+            <p className="text-zinc-500">Loading trip…</p>
+            <div className="h-40 animate-pulse rounded-xl bg-zinc-100 dark:bg-zinc-900" />
+          </div>
+        }
+      >
+        <TripHome params={params} searchParams={searchParams} />
       </Suspense>
     </Shell>
   );

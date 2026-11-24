@@ -6,6 +6,7 @@ import { join } from "node:path";
 export const ALICE = "00000000-0000-0000-0000-00000000000a"; // organiser
 export const BOB = "00000000-0000-0000-0000-00000000000b"; // joins via invite
 export const CAROL = "00000000-0000-0000-0000-00000000000c"; // never joins
+export const ERIN = "00000000-0000-0000-0000-00000000000e"; // joins, becomes co-planner
 
 function sqlFile(name: string): string {
   return readFileSync(join(process.cwd(), "supabase", name), "utf8");
@@ -33,7 +34,8 @@ export async function createDb(): Promise<PGlite> {
     insert into auth.users values
       ('${ALICE}', 'alice@example.com'),
       ('${BOB}',   'bob@example.com'),
-      ('${CAROL}', 'carol@example.com');
+      ('${CAROL}', 'carol@example.com'),
+      ('${ERIN}',  'erin@example.com');
   `);
 
   await db.exec(sqlFile("schema.sql"));
@@ -41,6 +43,7 @@ export async function createDb(): Promise<PGlite> {
   await db.exec(sqlFile("003_stay_comparison.sql"));
   await db.exec(sqlFile("004_map_locations.sql"));
   await db.exec(sqlFile("005_grants.sql"));
+  await db.exec(sqlFile("006_decide.sql"));
   return db;
 }
 
