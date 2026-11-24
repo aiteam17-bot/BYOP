@@ -70,11 +70,17 @@ Apply in Supabase → SQL Editor, in order, once each:
 | `supabase/003_stay_comparison.sql` | applied (checked) |
 | `supabase/004_map_locations.sql` | applied (checked) |
 | `supabase/005_grants.sql` | applied (checked) |
-| `supabase/006_decide.sql` | **NOT applied yet** (see setup) |
+| `supabase/006_decide.sql` | applied 2026-11-24 via SQL Editor ("Success. No rows returned") |
 
 006 is additive: new tables, functions, a trigger and two `trip_members`
 columns. It widens the `trip_members.role` check (adds `co_planner`); no data
-is dropped or rewritten. Check run on 2026-11-24: `trips` had 0 rows.
+is dropped or rewritten. Supabase's "destructive operation" warning on it is
+triggered by that `drop constraint` / re-add and the `revoke` lines.
+
+Read-only check before applying (2026-11-24): 002–005 present, 006 absent,
+`trips` = 0 rows. Read-only check after applying: 4 new tables, RLS on for
+all 4, 9 functions present, `authenticated` has no INSERT on `polls`, `anon`
+has no SELECT on `polls`, `trip_members.rsvp` exists, `trips` = 0 rows.
 
 ### Verified (exact commands, real results, 2026-11-24)
 
@@ -93,16 +99,31 @@ New tests:
 - `tests/decide.test.ts` (18 tests): next-step rules, poll tallies, decision
   states, formatting, input parsing.
 
-**Not verified end to end:** Decide has not run against the real Supabase
-project yet, because 006 is not applied there. The live site still runs the
-previous commit. Do not treat Decide as live until the checks below pass.
+**Live end-to-end on https://byop-iota.vercel.app** (2026-11-24, deploy of
+`044d69c`, Vercel status Ready, signed in with GitHub as one real user):
+- Created trip "Decide live check"; Trip home showed "Where and when are still
+  to be decided" and next step "Are you coming?".
+- RSVP In → counts "1 in · 0 maybe · 0 not yet".
+- Suggested 22–25 Jan 2027 and 5–8 Feb 2027; voted 5–8 Feb ("1 vote ·
+  leading", "Your vote").
+- Suggested 1–4 Mar 2025 → database message "Those dates are in the past".
+- Settled dates on 5–8 Feb → "Settled: 5–8 Feb 2027" with Reopen.
+- Suggested Goa, voted, settled → "Settled: Goa".
+- Renamed trip → "Decide live check (renamed)".
+- Trip home then showed "Goa · 5–8 Feb 2027", Decide rows updated, and next
+  step "Fill in your private preference card". Shape tab showed the map;
+  Prepare showed its "not built yet" state.
+
+**Not verified live (multi-person):** joining by invite, a second member's
+RSVP/votes, co-planner role change, and nudges between people. These are
+covered only by the database tests so far; they need a second real account.
 
 ### Setup still needed
-1. Apply `supabase/006_decide.sql` in the Supabase SQL Editor.
-2. Push `feat/decide-stage` and merge to `main` (Vercel deploys `main`).
-3. Real check on https://byop-iota.vercel.app with two GitHub accounts: create a
-   trip, join via invite, RSVP, suggest and vote on dates and a destination,
-   nudge, settle as organiser, make the friend co-planner.
+1. Done: 006 applied; `feat/decide-stage` merged to `main` and deployed.
+2. Multi-person live check with a second GitHub account: join via invite,
+   RSVP, vote, nudge, make them co-planner, let them settle.
+3. The live check left one trip in production: "Decide live check
+   (renamed)", owned by aiteam17-bot. Delete it or keep it as your first trip.
 4. Optional: `npm run test:live` needs Supabase "Confirm email" switched off
    while it runs. It has not been run for this stage.
 
@@ -118,6 +139,7 @@ previous commit. Do not treat Decide as live until the checks below pass.
   not part of this stage; the next-step card is rule-based, not AI.
 - Display names come from the join form or the email's first part.
 - Not yet tested with a screen reader.
+- Trip home's browser tab title is the generic "Group Trip Planner".
 
 ### Next checkpoint
 03 Anonymous budget: private per-member range, group sees only a rounded
