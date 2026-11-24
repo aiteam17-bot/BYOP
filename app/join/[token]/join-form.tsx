@@ -7,9 +7,11 @@ import { joinTrip, type JoinState } from "./actions";
 export function JoinForm({
   token,
   defaultName,
+  alreadyMember = false,
 }: {
   token: string;
   defaultName: string;
+  alreadyMember?: boolean;
 }) {
   const [state, action, pending] = useActionState<JoinState, FormData>(
     joinTrip.bind(null, token),
@@ -18,6 +20,7 @@ export function JoinForm({
 
   return (
     <form action={action} className="flex flex-col gap-5">
+      {!alreadyMember && (
       <label className={labelClass}>
         Your name (so friends know who you are)
         <input
@@ -27,10 +30,11 @@ export function JoinForm({
           className={inputClass}
         />
       </label>
+      )}
       <FieldError message={state.error} />
       <div>
         <button type="submit" disabled={pending} className={primaryButton}>
-          {pending ? "Joining…" : "Join this trip"}
+          {pending ? "Opening…" : alreadyMember ? "Open the trip" : "Join this trip"}
         </button>
       </div>
     </form>

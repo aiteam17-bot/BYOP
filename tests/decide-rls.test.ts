@@ -2,7 +2,7 @@
 // run against the real SQL in an in-memory Postgres.
 import type { PGlite } from "@electric-sql/pglite";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
-import { ALICE, BOB, CAROL, ERIN, asUser, createDb } from "./helpers/db";
+import { ALICE, BOB, CAROL, ERIN, asUser, createDb, inviteAndJoin } from "./helpers/db";
 
 const BLOCKED = /row-level security|permission denied/;
 
@@ -31,15 +31,14 @@ async function addDates(userId: string, start: number, end: number): Promise<str
 
 beforeAll(async () => {
   db = await createDb();
-  const trip = await asUser<{ id: string; invite_token: string }>(
+  const trip = await asUser<{ id: string }>(
     db,
     ALICE,
-    `insert into trips (name) values ('Friends trip') returning id, invite_token`,
+    `insert into trips (name) values ('Friends trip') returning id`,
   );
   tripId = trip.rows[0].id;
-  const token = trip.rows[0].invite_token;
-  await asUser(db, BOB, `select join_trip($1, 'Bob')`, [token]);
-  await asUser(db, ERIN, `select join_trip($1, 'Erin')`, [token]);
+  await inviteAndJoin(db, ALICE, tripId, BOB, "Bob");
+  await inviteAndJoin(db, ALICE, tripId, ERIN, "Erin");
 });
 
 afterAll(async () => {
@@ -79,13 +78,14 @@ describe("roles", () => {
     await expect(
       asUser(db, ALICE, `select set_member_role($1, $2, 'owner')`, [tripId, BOB]),
     ).rejects.toThrow(/Choose co-planner or traveller/);
-    // Not even with a direct table update, which RLS would otherwise allow.
+    // Not even with a direct table update: the role column is not writable
+    // by anyone through the API (007 column grants).
     await expect(
       asUser(db, ALICE, `update trip_members set role = 'owner' where trip_id = $1 and user_id = $2`, [tripId, BOB]),
-    ).rejects.toThrow(/organiser role belongs/);
+    ).rejects.toThrow(/permission denied/);
     await expect(
       asUser(db, ALICE, `update trip_members set role = 'member' where trip_id = $1 and user_id = $2`, [tripId, ALICE]),
-    ).rejects.toThrow(/organiser role belongs/);
+    ).rejects.toThrow(/permission denied/);
   });
 
   it("a traveller cannot promote themselves", async () => {
@@ -147,9 +147,20 @@ describe("RSVP", () => {
   });
 
   it("the organiser cannot answer for someone else, even with a direct update", async () => {
-    await expect(
-      asUser(db, ALICE, `update trip_members set rsvp = 'in' where trip_id = $1 and user_id = $2`, [tripId, BOB]),
-    ).rejects.toThrow(/Only you can change your RSVP/);
+    // Since 007 you can only update your own member row, so this changes nothing.
+    const result = await asUser(
+      db,
+      ALICE,
+      `update trip_members set rsvp = 'in' where trip_id = $1 and user_id = $2`,
+      [tripId, BOB],
+    );
+    expect(result.affectedRows ?? 0).toBe(0);
+    const bob = await one<{ rsvp: string }>(
+      BOB,
+      `select rsvp from trip_members where trip_id = $1 and user_id = $2`,
+      [tripId, BOB],
+    );
+    expect(bob.rsvp).toBe("maybe");
   });
 
   it("an outsider cannot RSVP to a trip they are not on", async () => {

@@ -7,12 +7,31 @@ import { JoinForm } from "./join-form";
 
 export const metadata = { title: "Join a trip · Group Trip Planner" };
 
-type Preview = {
-  trip_id: string;
-  name: string;
-  destination: string | null;
-  already_member: boolean;
-};
+type Preview =
+  | { status: "invalid" | "rate_limited" }
+  | {
+      status: "valid";
+      trip_name: string;
+      destination: string | null;
+      already_member: boolean;
+      expires_at: string;
+    };
+
+function Problem({ title, body }: { title: string; body: string }) {
+  return (
+    <Card>
+      <div className="flex flex-col gap-4">
+        <h1 className="text-2xl font-semibold text-zinc-950 dark:text-zinc-50">{title}</h1>
+        <Muted>{body}</Muted>
+        <div>
+          <Link href="/trips" className={secondaryButton}>
+            Go to your trips
+          </Link>
+        </div>
+      </div>
+    </Card>
+  );
+}
 
 async function InviteDetails({ params }: { params: Promise<{ token: string }> }) {
   const { token } = await params;
@@ -23,48 +42,55 @@ async function InviteDetails({ params }: { params: Promise<{ token: string }> })
   } = await supabase.auth.getUser();
   if (!user) redirect("/login");
 
-  const { data, error } = await supabase.rpc("invite_preview", { _token: token });
+  // Shows only the trip's name and destination before you join: never who
+  // is on it. Wrong tokens count towards a rate limit.
+  const { data, error } = await supabase.rpc("preview_invite", { _token: token });
   if (error) throw new Error("Could not check this invite link");
-  const preview = ((data ?? []) as Preview[])[0];
+  const preview = data as Preview;
 
-  if (!preview) {
+  if (preview.status === "rate_limited") {
     return (
-      <Card>
-        <div className="flex flex-col gap-4">
-          <h1 className="text-2xl font-semibold text-zinc-950 dark:text-zinc-50">
-            This invite link isn&apos;t valid
-          </h1>
-          <Muted>
-            It may have been copied incorrectly. Ask whoever invited you to
-            send it again.
-          </Muted>
-          <div>
-            <Link href="/trips" className={secondaryButton}>
-              Go to your trips
-            </Link>
-          </div>
-        </div>
-      </Card>
+      <Problem
+        title="Too many invite attempts"
+        body="Wait 15 minutes, then open the link again."
+      />
+    );
+  }
+  if (preview.status !== "valid") {
+    return (
+      <Problem
+        title="This invite link isn't valid"
+        body="It may have expired, been revoked, or been copied incorrectly. Ask whoever invited you for a new link."
+      />
     );
   }
 
-  if (preview.already_member) redirect(`/trips/${preview.trip_id}`);
-
-  const defaultName =
-    (user.user_metadata?.user_name as string | undefined) ??
-    (user.email ?? "").split("@")[0];
+  const { data: profile, error: profileError } = await supabase
+    .from("profiles")
+    .select("display_name")
+    .eq("id", user.id)
+    .maybeSingle();
+  if (profileError) throw new Error("Could not load your profile");
+  const defaultName = profile?.display_name ?? "";
 
   return (
     <>
       <div className="flex flex-col gap-2">
         <Muted>You&apos;re invited to</Muted>
         <h1 className="text-3xl font-semibold tracking-tight text-zinc-950 dark:text-zinc-50">
-          {preview.name}
+          {preview.trip_name}
         </h1>
         {preview.destination && <Muted>{preview.destination}</Muted>}
       </div>
       <Card>
-        <JoinForm token={token} defaultName={defaultName} />
+        {preview.already_member ? (
+          <div className="flex flex-col gap-4">
+            <Muted>You&apos;re already on this trip.</Muted>
+            <JoinForm token={token} defaultName={defaultName} alreadyMember />
+          </div>
+        ) : (
+          <JoinForm token={token} defaultName={defaultName} />
+        )}
       </Card>
     </>
   );

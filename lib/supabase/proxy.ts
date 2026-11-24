@@ -33,10 +33,11 @@ export async function updateSession(request: NextRequest) {
     },
   });
 
-  // Do not put code between createServerClient and getUser().
-  const {
-    data: { user },
-  } = await supabase.auth.getUser();
+  // Do not put code between createServerClient and getClaims(). getClaims()
+  // verifies the session JWT (and refreshes it through setAll above when it
+  // is about to expire); never trust getSession() for this.
+  const { data } = await supabase.auth.getClaims();
+  const user = data?.claims?.sub ? data.claims : null;
 
   const path = request.nextUrl.pathname;
   const isPrivate = PRIVATE_PREFIXES.some(

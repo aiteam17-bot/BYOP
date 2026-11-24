@@ -20,7 +20,6 @@ export type TripContext = {
     destination: string | null;
     startDate: string | null;
     endDate: string | null;
-    inviteToken: string;
   };
   me: Member;
   members: Member[];
@@ -50,7 +49,7 @@ export async function loadTripContext(tripId: string): Promise<TripContext> {
     await Promise.all([
       supabase
         .from("trips")
-        .select("id, name, destination, start_date, end_date, invite_token")
+        .select("id, name, destination, start_date, end_date")
         .eq("id", tripId)
         .maybeSingle(),
       supabase
@@ -135,7 +134,6 @@ export async function loadTripContext(tripId: string): Promise<TripContext> {
       destination: trip.destination,
       startDate: trip.start_date,
       endDate: trip.end_date,
-      inviteToken: trip.invite_token,
     },
     me,
     members,

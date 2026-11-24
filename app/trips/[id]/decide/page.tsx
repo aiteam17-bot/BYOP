@@ -24,9 +24,8 @@ import {
   type Member,
   type PollKind,
 } from "@/lib/decide";
-import { getOrigin } from "@/lib/site";
+import { createClient } from "@/lib/supabase/server";
 import { loadTripContext, type TripContext } from "@/lib/trip-data";
-import { CopyButton } from "../copy-button";
 import {
   addDatesOption,
   addDestinationOption,
@@ -35,10 +34,12 @@ import {
   removeOption,
   renameTrip,
   reopenPoll,
+  revokeInviteLink,
   setMemberRole,
   setRsvp,
   settlePoll,
 } from "./actions";
+import { InviteCreator } from "./invite-creator";
 
 export const metadata = { title: "Decide · Group Trip Planner" };
 
@@ -95,24 +96,66 @@ function TripNameCard({ ctx }: { ctx: TripContext }) {
   );
 }
 
-async function InviteAndRoles({ ctx }: { ctx: TripContext }) {
-  const inviteUrl = `${await getOrigin()}/join/${ctx.trip.inviteToken}`;
+type InviteRow = { id: string; created_at: string; expires_at: string; use_count: number };
+
+function shortDate(iso: string): string {
+  return new Date(iso).toLocaleString("en-IN", { dateStyle: "medium", timeStyle: "short", timeZone: "Asia/Kolkata" });
+}
+
+async function InviteLinks({ ctx }: { ctx: TripContext }) {
+  if (!canPlan(ctx.me.role)) {
+    return (
+      <Muted>
+        Want to bring someone? Ask the organiser or a co-planner for an invite link.
+      </Muted>
+    );
+  }
+  const supabase = await createClient();
+  const { data, error } = await supabase
+    .from("trip_invites")
+    .select("id, created_at, expires_at, use_count")
+    .eq("trip_id", ctx.trip.id)
+    .is("revoked_at", null)
+    .gt("expires_at", new Date().toISOString())
+    .order("created_at", { ascending: false });
+  if (error) throw new Error("Could not load invite links");
+  const active = (data ?? []) as InviteRow[];
+  return (
+    <div className="flex flex-col gap-4">
+      <Muted>
+        Anyone who opens a link and signs in with GitHub joins as a traveller. Links expire, and
+        you can revoke them at any time.
+      </Muted>
+      <InviteCreator tripId={ctx.trip.id} />
+      {active.length === 0 ? (
+        <p className="text-sm text-zinc-500">No active links.</p>
+      ) : (
+        <ul className="flex flex-col divide-y divide-zinc-200 dark:divide-zinc-800" aria-label="Active invite links">
+          {active.map((invite) => (
+            <li key={invite.id} className="flex flex-wrap items-center justify-between gap-3 py-2">
+              <span className="text-sm text-zinc-700 dark:text-zinc-300">
+                Made {shortDate(invite.created_at)} · expires {shortDate(invite.expires_at)} ·{" "}
+                {invite.use_count} joined
+              </span>
+              <ActionForm action={revokeInviteLink.bind(null, ctx.trip.id, invite.id)}>
+                <SubmitButton className={smallButton} pendingText="Revoking…" ariaLabel="Revoke this link">
+                  Revoke
+                </SubmitButton>
+              </ActionForm>
+            </li>
+          ))}
+        </ul>
+      )}
+    </div>
+  );
+}
+
+function InviteAndRoles({ ctx }: { ctx: TripContext }) {
   const isOrganiser = ctx.me.role === "owner";
   return (
     <Card title="Invite and roles">
       <div className="flex flex-col gap-6">
-        <div className="flex flex-col gap-3">
-          <Muted>Send this link. Anyone who opens it and signs in joins as a traveller.</Muted>
-          <input
-            readOnly
-            value={inviteUrl}
-            aria-label="Invite link"
-            className={inputClass}
-          />
-          <div>
-            <CopyButton value={inviteUrl} />
-          </div>
-        </div>
+        <InviteLinks ctx={ctx} />
 
         <ul className="flex flex-col divide-y divide-zinc-200 dark:divide-zinc-800">
           {ctx.members.map((m) => (

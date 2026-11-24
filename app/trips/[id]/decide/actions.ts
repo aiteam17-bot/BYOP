@@ -8,6 +8,7 @@ import {
   parseDestinationOption,
   parseTripName,
 } from "@/lib/decide";
+import { getOrigin } from "@/lib/site";
 import { createClient } from "@/lib/supabase/server";
 import { isUuid, parseTripDates } from "@/lib/validation";
 
@@ -132,4 +133,37 @@ export async function nudgeMember(tripId: string, userId: string, topic: string,
     (s) => s.rpc("nudge_member", { _trip_id: tripId, _to_user: userId, _topic: topic }),
     (data) => (data === "recent" ? "Already reminded in the last 12 hours" : "Reminder sent in the app"),
   );
+}
+
+export type InviteState = { error?: string; link?: string; expiresAt?: string };
+
+// Creates a link that expires (organiser or co-planner, checked in the
+// database). The token is returned once and never stored, only its hash.
+export async function createInviteLink(
+  tripId: string,
+  _prev: InviteState,
+  form: FormData,
+): Promise<InviteState> {
+  if (!isUuid(tripId)) return { error: "That trip could not be found." };
+  const days = Number(form.get("days"));
+  if (![1, 7, 30].includes(days)) return { error: "Choose how long the link lasts" };
+  const supabase = await signedIn();
+  const { data, error } = await supabase.rpc("create_invite", {
+    _trip_id: tripId,
+    _valid_days: days,
+  });
+  if (error) {
+    return {
+      error:
+        error.code && SAFE_CODES.has(error.code) ? error.message : "That didn't work. Please try again.",
+    };
+  }
+  const invite = data as { token: string; expires_at: string };
+  revalidatePath(`/trips/${tripId}`, "layout");
+  return { link: `${await getOrigin()}/join/${invite.token}`, expiresAt: invite.expires_at };
+}
+
+export async function revokeInviteLink(tripId: string, inviteId: string, prev: ActionState) {
+  if (!isUuid(tripId) || !isUuid(inviteId)) return notFound;
+  return run(tripId, prev, (s) => s.rpc("revoke_invite", { _invite_id: inviteId }), () => "Link revoked");
 }

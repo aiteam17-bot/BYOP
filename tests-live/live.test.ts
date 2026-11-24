@@ -5,8 +5,10 @@
 // It signs up three throwaway users with random passwords (never printed),
 // then drives the same database calls the app makes, as each of them, and
 // checks the row-level security rules actually hold on the real database.
-// Needs "Confirm email" switched off in Supabase while it runs, because the
-// throwaway addresses have no inbox. Normal `npm test` never runs this file.
+// Needs the Email provider ON and "Confirm email" OFF in Supabase while it
+// runs (the throwaway addresses have no inbox). The app itself signs in with
+// GitHub only, so switch both back afterwards. Normal `npm test` never runs
+// this file.
 import { randomBytes } from "node:crypto";
 import { createClient, type SupabaseClient } from "@supabase/supabase-js";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
@@ -80,14 +82,17 @@ describe("starting a trip and inviting friends", () => {
           start_date: "2026-12-10",
           end_date: "2026-12-14",
         })
-        .select("id, owner_id, currency, invite_token")
+        .select("id, owner_id, currency")
         .single(),
     );
     tripId = trip.id;
-    inviteToken = trip.invite_token;
     expect(trip.owner_id).toBe(alice.id); // owner_id defaults to the signed-in user
     expect(trip.currency).toBe("INR");
-    expect(inviteToken).toMatch(/^[0-9a-f]{32}$/);
+    const invite = ok(await alice.supabase.rpc("create_invite", { _trip_id: tripId, _valid_days: 1 })) as {
+      token: string;
+    };
+    inviteToken = invite.token;
+    expect(inviteToken).toMatch(/^[0-9a-f]{64}$/);
 
     const members = ok(
       await alice.supabase.from("trip_members").select("user_id, role").eq("trip_id", tripId),
@@ -99,15 +104,16 @@ describe("starting a trip and inviting friends", () => {
     const seen = ok(await carol.supabase.from("trips").select("id"));
     expect(seen).toHaveLength(0);
 
-    const preview = ok(await carol.supabase.rpc("invite_preview", { _token: inviteToken }));
-    expect(preview).toHaveLength(1);
-    expect(preview[0]).toMatchObject({ name: "Live test trip", already_member: false });
+    const preview = ok(await carol.supabase.rpc("preview_invite", { _token: inviteToken }));
+    expect(preview).toMatchObject({ status: "valid", trip_name: "Live test trip", already_member: false });
+    expect(preview).not.toHaveProperty("trip_id");
   });
 
   it("a friend joins with the link, and joining twice is harmless", async () => {
-    const joined = ok(await bob.supabase.rpc("join_trip", { _token: inviteToken, _display_name: "Bob" }));
-    expect(joined).toBe(tripId);
-    ok(await bob.supabase.rpc("join_trip", { _token: inviteToken, _display_name: "Bob again" }));
+    const joined = ok(await bob.supabase.rpc("redeem_invite", { _token: inviteToken, _display_name: "Bob" }));
+    expect(joined).toEqual({ status: "joined", trip_id: tripId });
+    const again = ok(await bob.supabase.rpc("redeem_invite", { _token: inviteToken, _display_name: "Bob again" }));
+    expect(again).toEqual({ status: "already_member", trip_id: tripId });
 
     const members = ok(await bob.supabase.from("trip_members").select("user_id, display_name"));
     expect(members).toHaveLength(2);
@@ -116,8 +122,8 @@ describe("starting a trip and inviting friends", () => {
   });
 
   it("a wrong invite token cannot be used", async () => {
-    const result = await carol.supabase.rpc("join_trip", { _token: "not-a-real-token" });
-    expect(result.error?.message).toMatch(/not valid/);
+    const result = ok(await carol.supabase.rpc("redeem_invite", { _token: "f".repeat(64) }));
+    expect(result).toEqual({ status: "invalid" });
   });
 
   it("a signed-out visitor cannot read any table", async () => {

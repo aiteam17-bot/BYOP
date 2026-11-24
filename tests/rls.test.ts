@@ -1,6 +1,6 @@
 import type { PGlite } from "@electric-sql/pglite";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
-import { ALICE, BOB, CAROL, asUser, createDb } from "./helpers/db";
+import { ALICE, BOB, CAROL, asUser, createDb, createInvite, redeem } from "./helpers/db";
 
 const BLOCKED = /row-level security|permission denied/;
 
@@ -12,17 +12,17 @@ beforeAll(async () => {
   db = await createDb();
 
   // Alice starts a trip. She becomes its organiser.
-  const trip = await asUser<{ id: string; invite_token: string }>(
+  const trip = await asUser<{ id: string }>(
     db,
     ALICE,
     `insert into trips (name, destination) values ('Goa', 'Goa, India')
-     returning id, invite_token`,
+     returning id`,
   );
   tripId = trip.rows[0].id;
-  inviteToken = trip.rows[0].invite_token;
+  inviteToken = await createInvite(db, ALICE, tripId);
 
   // Bob opens her invite link and joins.
-  await asUser(db, BOB, `select join_trip($1, 'Bob')`, [inviteToken]);
+  await redeem(db, BOB, inviteToken, "Bob");
 
   // Both fill in their private preference cards.
   await asUser(
@@ -181,7 +181,7 @@ describe("the trip page's 'who has answered' view", () => {
     // Dan joins but never fills in a card.
     const DAN = "00000000-0000-0000-0000-00000000000d";
     await db.exec(`insert into auth.users values ('${DAN}', 'dan@example.com')`);
-    await asUser(db, DAN, `select join_trip($1, 'Dan')`, [inviteToken]);
+    await redeem(db, DAN, inviteToken, "Dan");
 
     const status = await asUser<{ display_name: string; has_answered: boolean }>(
       db,
@@ -217,44 +217,48 @@ describe("invite links", () => {
   });
 
   it("the invite token is long and random, not guessable", () => {
-    expect(inviteToken).toMatch(/^[0-9a-f]{32}$/);
+    expect(inviteToken).toMatch(/^[0-9a-f]{64}$/);
   });
 
   it("an outsider can preview the trip from the link but sees nothing else", async () => {
-    const preview = await asUser<Record<string, unknown>>(
+    const preview = await asUser<{ p: Record<string, unknown> }>(
       db,
       CAROL,
-      `select * from invite_preview($1)`,
+      `select preview_invite($1) as p`,
       [inviteToken],
     );
-    expect(preview.rows).toHaveLength(1);
-    expect(preview.rows[0]).toMatchObject({
-      name: "Goa",
+    expect(preview.rows[0].p).toMatchObject({
+      status: "valid",
+      trip_name: "Goa",
       already_member: false,
     });
+    // No trip id, no member list before joining.
+    expect(Object.keys(preview.rows[0].p).sort()).toEqual(
+      ["already_member", "destination", "expires_at", "status", "trip_name"].sort(),
+    );
 
-    const trips = await asUser(db, CAROL, `select * from trips`);
+    const trips = await asUser(db, CAROL, `select id, name from trips`);
     expect(trips.rows).toHaveLength(0);
     const members = await asUser(db, CAROL, `select * from trip_members`);
     expect(members.rows).toHaveLength(0);
   });
 
   it("a wrong token previews nothing and cannot be used to join", async () => {
-    const preview = await asUser(
+    const preview = await asUser<{ p: { status: string } }>(
       db,
       CAROL,
-      `select * from invite_preview($1)`,
+      `select preview_invite($1) as p`,
       ["not-a-real-token"],
     );
-    expect(preview.rows).toHaveLength(0);
-
-    await expect(
-      asUser(db, CAROL, `select join_trip($1)`, ["not-a-real-token"]),
-    ).rejects.toThrow(/not valid/);
+    expect(preview.rows[0].p).toEqual({ status: "invalid" });
+    expect(await redeem(db, CAROL, "f".repeat(64))).toEqual({ status: "invalid" });
   });
 
   it("joining twice does not duplicate the member", async () => {
-    await asUser(db, BOB, `select join_trip($1, 'Bob again')`, [inviteToken]);
+    expect(await redeem(db, BOB, inviteToken, "Bob again")).toEqual({
+      status: "already_member",
+      trip_id: tripId,
+    });
     const rows = await asUser<{ display_name: string }>(
       db,
       BOB,
@@ -266,15 +270,15 @@ describe("invite links", () => {
 
   it("signed-out visitors cannot join or preview", async () => {
     await expect(
-      asUser(db, null, `select join_trip($1)`, [inviteToken]),
+      asUser(db, null, `select redeem_invite($1)`, [inviteToken]),
     ).rejects.toThrow(BLOCKED);
     await expect(
-      asUser(db, null, `select * from invite_preview($1)`, [inviteToken]),
+      asUser(db, null, `select preview_invite($1)`, [inviteToken]),
     ).rejects.toThrow(BLOCKED);
   });
 
   it("a friend who joins can then see the trip and its members", async () => {
-    await asUser(db, CAROL, `select join_trip($1, 'Carol')`, [inviteToken]);
+    expect((await redeem(db, CAROL, inviteToken, "Carol")).status).toBe("joined");
     const trips = await asUser(db, CAROL, `select id from trips`);
     expect(trips.rows).toHaveLength(1);
     const members = await asUser(db, CAROL, `select * from trip_members`);

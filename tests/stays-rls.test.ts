@@ -1,6 +1,6 @@
 import type { PGlite } from "@electric-sql/pglite";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
-import { ALICE, BOB, CAROL, asUser, createDb } from "./helpers/db";
+import { ALICE, BOB, CAROL, asUser, createDb, inviteAndJoin } from "./helpers/db";
 
 const BLOCKED = /row-level security|permission denied/;
 
@@ -9,14 +9,14 @@ let tripId: string;
 
 beforeAll(async () => {
   db = await createDb();
-  const trip = await asUser<{ id: string; invite_token: string }>(
+  const trip = await asUser<{ id: string }>(
     db,
     ALICE,
     `insert into trips (name, start_date, end_date)
-     values ('Goa', '2026-12-10', '2026-12-14') returning id, invite_token`,
+     values ('Goa', '2026-12-10', '2026-12-14') returning id`,
   );
   tripId = trip.rows[0].id;
-  await asUser(db, BOB, `select join_trip($1, 'Bob')`, [trip.rows[0].invite_token]);
+  await inviteAndJoin(db, ALICE, trip.rows[0].id, BOB, 'Bob');
 });
 
 afterAll(async () => {

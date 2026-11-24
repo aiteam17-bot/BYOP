@@ -21,13 +21,18 @@ async function AccountDetails() {
 
   if (!user) redirect("/login");
 
+  const { data: profile, error } = await supabase
+    .from("profiles")
+    .select("display_name")
+    .eq("id", user.id)
+    .maybeSingle();
+  if (error) throw new Error("Could not load your profile");
+
   return (
     <>
       <p className="text-lg text-zinc-700 dark:text-zinc-300">
-        Signed in as{" "}
-        <strong>
-          {user.email ?? user.user_metadata?.user_name ?? "your account"}
-        </strong>
+        Signed in as <strong>{profile?.display_name ?? "your account"}</strong>
+        {user.email && <span className="block text-base text-zinc-500">{user.email}</span>}
       </p>
       <Link
         href="/trips"

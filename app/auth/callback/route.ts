@@ -2,7 +2,7 @@ import { NextResponse, type NextRequest } from "next/server";
 import { POST_LOGIN_COOKIE, safeNextPath } from "@/lib/auth-redirect";
 import { createClient } from "@/lib/supabase/server";
 
-// The magic link in the email points here with a one-time ?code=...
+// GitHub sign-in (via Supabase) returns here with a one-time ?code=...
 // We swap it for a session cookie, then send the user to the page they were
 // trying to reach (e.g. an invite link), or to their trips.
 export async function GET(request: NextRequest) {
@@ -21,5 +21,6 @@ export async function GET(request: NextRequest) {
     }
   }
 
-  return NextResponse.redirect(`${origin}/login?error=link`);
+  // Missing or rejected code, or the provider sent ?error=...: back to sign in.
+  return NextResponse.redirect(`${origin}/login?error=signin`);
 }
