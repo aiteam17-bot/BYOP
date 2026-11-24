@@ -13,13 +13,22 @@ async function TripList() {
   } = await supabase.auth.getUser();
   if (!user) redirect("/login");
 
-  const { data: trips } = await supabase
+  const { data: trips, error } = await supabase
     .from("trips")
     .select("id, name, destination")
     .order("created_at", { ascending: false });
+  // A failed read shows the error screen, never "no trips".
+  if (error) throw new Error("Could not load your trips");
 
   if (!trips || trips.length === 0) {
-    return <Muted>You haven&apos;t joined any trips yet.</Muted>;
+    return (
+      <div className="flex flex-col gap-2">
+        <p className="font-medium text-zinc-950 dark:text-zinc-50">No trips yet</p>
+        <Muted>
+          Start one and invite your friends, or open an invite link someone sent you.
+        </Muted>
+      </div>
+    );
   }
 
   return (

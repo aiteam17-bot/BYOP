@@ -55,7 +55,7 @@ export function PreferencesForm({
             <input
               name="budget_min"
               inputMode="decimal"
-              placeholder="10000"
+              placeholder="Amount in ₹"
               defaultValue={paiseToRupeesString(defaults.budget_min_paise)}
               className={inputClass}
             />
@@ -66,7 +66,7 @@ export function PreferencesForm({
             <input
               name="budget_max"
               inputMode="decimal"
-              placeholder="25000"
+              placeholder="Amount in ₹"
               defaultValue={paiseToRupeesString(defaults.budget_max_paise)}
               className={inputClass}
             />

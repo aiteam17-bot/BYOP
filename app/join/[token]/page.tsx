@@ -23,7 +23,8 @@ async function InviteDetails({ params }: { params: Promise<{ token: string }> })
   } = await supabase.auth.getUser();
   if (!user) redirect("/login");
 
-  const { data } = await supabase.rpc("invite_preview", { _token: token });
+  const { data, error } = await supabase.rpc("invite_preview", { _token: token });
+  if (error) throw new Error("Could not check this invite link");
   const preview = ((data ?? []) as Preview[])[0];
 
   if (!preview) {

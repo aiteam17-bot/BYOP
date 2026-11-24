@@ -8,8 +8,69 @@ mock APIs, simulated AI or invented prices. Test fixtures exist only inside
 - Database/Auth: Supabase project `bbqsuwsloegyjutbefjd` (Free plan)
 - Stack: Next.js 16 App Router + TypeScript, Supabase Postgres/Auth with RLS,
   Tailwind CSS 4, Vitest + PGlite for database tests
+- Plan: [REAL_BUILD_PLAN.md](REAL_BUILD_PLAN.md) (screen map, provider
+  dependencies, migration plan, seven-stage checklist)
 
-## Current stage: 01 Trip home + 02 Decide (PRD part 1, planning)
+## Latest: real-build audit and demo-fallback removal
+
+Date: 2026-11-24. Branch: `chore/real-build-audit`. Backup taken first:
+`backup/pre-real-build-audit-2026-11-24` (pushed, = `main` at `d9d8e17`).
+No database change; no remote record or browser data deleted.
+
+### Changed
+- Failed reads now show an error screen with "Try again" instead of fake
+  emptiness: `/trips` (was "no trips"), stays (was 1 person sharing / empty
+  list / 404), preferences (was a blank form that could overwrite saved
+  answers), join (was "invalid link"). Shared `components/load-error.tsx`;
+  `error.tsx` added for `/trips` and `/join/[token]`.
+- Stays never invent numbers: rows missing price, rooms or beds are listed
+  under "Missing details" and not ranked (was ₹0 / 1 room / 1 bed); a missing
+  price-check date reads "not recorded" and counts as stale (was "today").
+- Sample-price and sample-location placeholders replaced with format hints.
+- `/trips` empty state: "No trips yet" with what to do next.
+- `/account`: "Old demo data in this browser". Reads only the legacy
+  prototype keys `group-travel-demo` and `__demo_probe__`, warns, and
+  deletes them only after a second confirming click.
+- `.env.example` now holds variable names only.
+- `npm run scan:secrets` (`scripts/scan-secrets.mjs`): redacted secret scan of
+  tracked files, untracked files, full git history and ignored env files.
+
+### Verified (exact commands, real results, 2026-11-24)
+```
+$ npx tsc --noEmit        -> exit 0
+$ npm run lint            -> exit 0
+$ npm test                -> Test Files 10 passed (10), Tests 132 passed (132)
+$ npm run build           -> Compiled successfully, 15/15 pages generated
+$ npm run scan:secrets    -> tracked files (82): no findings
+                             untracked, not ignored (8): no findings
+                             git history (9 commits, all branches): no findings
+                             git-ignored env files (1): .env.local, variables
+                               NEXT_PUBLIC_SUPABASE_URL,
+                               NEXT_PUBLIC_SUPABASE_ANON_KEY;
+                               supabase-publishable-key sb_p…(46 chars)
+                             Result: PASS
+$ node scripts/scan-secrets.mjs ~/BYOP   (legacy prototype) -> 42 files, no findings, PASS
+```
+Scanner self-test on planted fake values detected a 40-hex client secret,
+an `sb_secret_` key, a `ghp_` token and a hard-coded `api_key` (then deleted).
+
+Browser check on the local dev server (localhost:3000, real Supabase, signed in
+with GitHub): Account showed "None found" (the prototype ran on another origin).
+After planting a test `group-travel-demo` key: the warning listed it (67
+bytes); the first click only opened the confirmation; confirming removed
+`group-travel-demo` and left this origin's unrelated keys (`cart`,
+`savedDishes`, `theme`) in place. The stays page loaded with "1 person
+sharing" and the empty state.
+
+Not deployed: this branch is not merged to `main` yet.
+
+### Known issues found, not fixed in this pass
+- `/account` logs a Next.js dev warning: `Date.now()` during prerender inside
+  `AccountDetails` (code from before this pass).
+- See REAL_BUILD_PLAN.md §7 (stays error messages; organiser can set dates
+  outside an open vote; no UI writes itinerary items).
+
+## Stage 1: 01 Trip home + 02 Decide (PRD part 1, planning)
 
 Date: 2026-11-24. Branch: `feat/decide-stage`.
 

@@ -10,7 +10,7 @@ import { safeHttpUrl } from "@/lib/stay-input";
 export type StayCardData = ComparedStay & {
   url: string;
   cancellationTerms: string | null;
-  priceCheckedOn: string;
+  priceCheckedOn: string | null;
   addedByMe: boolean;
 };
 
@@ -29,8 +29,9 @@ export function StayCard({
 }) {
   const { stay, cost, tradeoff } = data;
   const link = safeHttpUrl(data.url);
-  const daysOld = nightsBetween(data.priceCheckedOn, today);
-  const stale = daysOld > 7;
+  const daysOld = data.priceCheckedOn ? nightsBetween(data.priceCheckedOn, today) : null;
+  // No recorded check date is treated like an old price, never as "today".
+  const stale = daysOld === null || daysOld > 7;
   const capacity = capacityWarning(stay.beds, sharers);
 
   return (
@@ -76,8 +77,10 @@ export function StayCard({
             {data.cancellationTerms && `: ${data.cancellationTerms}`}
           </li>
           <li className={stale ? "text-amber-700 dark:text-amber-400" : undefined}>
-            Price checked {formatDate(data.priceCheckedOn)}
-            {stale && ` (${daysOld} days ago, so it may have changed)`}
+            {data.priceCheckedOn
+              ? `Price checked ${formatDate(data.priceCheckedOn)}`
+              : "Price check date not recorded, so it may have changed"}
+            {daysOld !== null && daysOld > 7 && ` (${daysOld} days ago, so it may have changed)`}
           </li>
         </ul>
 

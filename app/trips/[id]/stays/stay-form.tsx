@@ -28,7 +28,7 @@ export function StayForm({ tripId, today }: { tripId: string; today: string }) {
       <div className="grid grid-cols-2 gap-4 max-md:grid-cols-1">
         <label className={labelClass}>
           Name
-          <input name="name" required maxLength={100} placeholder="Villa Sol" className={inputClass} />
+          <input name="name" required maxLength={100} placeholder="Name of the stay" className={inputClass} />
           <FieldError message={errors.name} />
         </label>
         <label className={labelClass}>
@@ -41,17 +41,17 @@ export function StayForm({ tripId, today }: { tripId: string; today: string }) {
       <div className="grid grid-cols-3 gap-4 max-md:grid-cols-1">
         <label className={labelClass}>
           Nightly price, whole stay (₹)
-          <input name="nightly" required inputMode="decimal" placeholder="12000" className={inputClass} />
+          <input name="nightly" required inputMode="decimal" placeholder="Amount in ₹" className={inputClass} />
           <FieldError message={errors.nightly} />
         </label>
         <label className={labelClass}>
           Taxes, total (₹)
-          <input name="taxes" inputMode="decimal" placeholder="5760" className={inputClass} />
+          <input name="taxes" inputMode="decimal" placeholder="Amount in ₹ (optional)" className={inputClass} />
           <FieldError message={errors.taxes} />
         </label>
         <label className={labelClass}>
           Fees, total (₹)
-          <input name="fees" inputMode="decimal" placeholder="1500" className={inputClass} />
+          <input name="fees" inputMode="decimal" placeholder="Amount in ₹ (optional)" className={inputClass} />
           <FieldError message={errors.fees} />
         </label>
       </div>
@@ -63,17 +63,17 @@ export function StayForm({ tripId, today }: { tripId: string; today: string }) {
       <div className="grid grid-cols-3 gap-4 max-md:grid-cols-1">
         <label className={labelClass}>
           Rooms
-          <input name="rooms" required inputMode="numeric" placeholder="3" className={inputClass} />
+          <input name="rooms" required inputMode="numeric" className={inputClass} />
           <FieldError message={errors.rooms} />
         </label>
         <label className={labelClass}>
           Beds
-          <input name="beds" required inputMode="numeric" placeholder="6" className={inputClass} />
+          <input name="beds" required inputMode="numeric" className={inputClass} />
           <FieldError message={errors.beds} />
         </label>
         <label className={labelClass}>
           Distance from main area (km)
-          <input name="distance_km" inputMode="decimal" placeholder="2.5" className={inputClass} />
+          <input name="distance_km" inputMode="decimal" placeholder="km (optional)" className={inputClass} />
           <FieldError message={errors.distance_km} />
         </label>
       </div>
@@ -101,7 +101,7 @@ export function StayForm({ tripId, today }: { tripId: string; today: string }) {
         Map location (optional)
         <input
           name="location"
-          placeholder="15.2993, 74.1240"
+          placeholder="latitude, longitude"
           autoComplete="off"
           className={inputClass}
         />

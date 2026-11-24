@@ -44,26 +44,40 @@ async function StayComparison({ params }: { params: Promise<{ id: string }> }) {
   } = await supabase.auth.getUser();
   if (!user) redirect("/login");
 
-  const { data: trip } = await supabase
-    .from("trips")
-    .select("id, name, start_date, end_date, owner_id")
-    .eq("id", id)
-    .maybeSingle();
+  const [tripRes, membersRes, staysRes] = await Promise.all([
+    supabase
+      .from("trips")
+      .select("id, name, start_date, end_date, owner_id")
+      .eq("id", id)
+      .maybeSingle(),
+    supabase
+      .from("trip_members")
+      .select("user_id", { count: "exact", head: true })
+      .eq("trip_id", id),
+    supabase
+      .from("stays")
+      .select(
+        "id, name, url, nightly_price_paise, taxes_paise, fees_paise, cancellation_type, cancellation_terms, rooms, beds, distance_km, price_checked_on, added_by",
+      )
+      .eq("trip_id", id),
+  ]);
+  // A failed read shows the error screen (with Try again), never an empty or
+  // guessed comparison.
+  if (tripRes.error || membersRes.error || staysRes.error) {
+    throw new Error("Could not load stays");
+  }
+  const trip = tripRes.data;
   if (!trip) notFound();
+  if (!membersRes.count) throw new Error("Could not count the people on this trip");
+  const sharers = membersRes.count;
 
-  const { count } = await supabase
-    .from("trip_members")
-    .select("user_id", { count: "exact", head: true })
-    .eq("trip_id", id);
-  const sharers = Math.max(count ?? 1, 1);
-
-  const { data: rows } = await supabase
-    .from("stays")
-    .select(
-      "id, name, url, nightly_price_paise, taxes_paise, fees_paise, cancellation_type, cancellation_terms, rooms, beds, distance_km, price_checked_on, added_by",
-    )
-    .eq("trip_id", id);
-  const stayRows = (rows ?? []) as StayRow[];
+  const allRows = (staysRes.data ?? []) as StayRow[];
+  // Stays missing a price, rooms or beds are listed separately and never
+  // ranked: no number is invented for them.
+  const stayRows = allRows.filter(
+    (r) => r.nightly_price_paise !== null && r.rooms !== null && r.beds !== null,
+  );
+  const incomplete = allRows.filter((r) => !stayRows.includes(r));
 
   const today = new Date().toISOString().slice(0, 10);
   const nights =
@@ -78,11 +92,12 @@ async function StayComparison({ params }: { params: Promise<{ id: string }> }) {
   const stays: Stay[] = stayRows.map((r) => ({
     id: r.id,
     name: r.name,
-    nightlyPaise: r.nightly_price_paise ?? 0,
+    nightlyPaise: r.nightly_price_paise!,
+    // Taxes and fees are optional in the form: empty means none were charged.
     taxesPaise: r.taxes_paise ?? 0,
     feesPaise: r.fees_paise ?? 0,
-    rooms: r.rooms ?? 1,
-    beds: r.beds ?? 1,
+    rooms: r.rooms!,
+    beds: r.beds!,
     distanceCentiKm:
       r.distance_km === null ? null : Math.round(Number(r.distance_km) * 100),
     cancellationType: r.cancellation_type,
@@ -102,7 +117,7 @@ async function StayComparison({ params }: { params: Promise<{ id: string }> }) {
       ...c,
       url: row.url ?? "",
       cancellationTerms: row.cancellation_terms,
-      priceCheckedOn: row.price_checked_on ?? today,
+      priceCheckedOn: row.price_checked_on,
       addedByMe: row.added_by === user.id,
     };
   });
@@ -151,6 +166,32 @@ async function StayComparison({ params }: { params: Promise<{ id: string }> }) {
           <StayForm tripId={id} today={today} />
         </div>
       </details>
+
+      {incomplete.length > 0 && (
+        <Card title="Missing details">
+          <div className="flex flex-col gap-3">
+            <Muted>
+              These stays are missing a nightly price, rooms or beds, so they
+              are not ranked. Whoever added one can remove it and add it again
+              with the full details.
+            </Muted>
+            <ul className="flex flex-col gap-1">
+              {incomplete.map((r) => (
+                <li key={r.id} className="flex flex-wrap items-center justify-between gap-3">
+                  <span className="text-zinc-950 dark:text-zinc-50">{r.name}</span>
+                  {r.added_by === user.id && (
+                    <form action={removeStay.bind(null, id, r.id)}>
+                      <button type="submit" className="text-sm text-zinc-500 underline">
+                        Remove this stay
+                      </button>
+                    </form>
+                  )}
+                </li>
+              ))}
+            </ul>
+          </div>
+        </Card>
+      )}
 
       {cards.length === 0 ? (
         <Muted>No stays yet. Paste the first one above.</Muted>

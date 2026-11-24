@@ -1,6 +1,7 @@
 import { Suspense } from "react";
 import Link from "next/link";
 import { redirect } from "next/navigation";
+import { LegacyDemoCleanup } from "@/components/legacy-demo-cleanup";
 import { createClient } from "@/lib/supabase/server";
 
 export const metadata = { title: "Account · Group Trip Planner" };
@@ -55,6 +56,9 @@ export default function AccountPage() {
       <Suspense fallback={<p className="text-zinc-500">Loading…</p>}>
         <AccountDetails />
       </Suspense>
+      <div className="mt-6 w-full max-w-md border-t border-zinc-200 pt-6 dark:border-zinc-800">
+        <LegacyDemoCleanup />
+      </div>
     </main>
   );
 }

@@ -18,15 +18,16 @@ async function CardEditor({ params }: { params: Promise<{ id: string }> }) {
   } = await supabase.auth.getUser();
   if (!user) redirect("/login");
 
-  const { data: trip } = await supabase
+  const { data: trip, error: tripError } = await supabase
     .from("trips")
     .select("id, name")
     .eq("id", id)
     .maybeSingle();
+  if (tripError) throw new Error("Could not load this trip");
   if (!trip) notFound();
 
   // You can only ever read your own row, so this can't return anyone else's.
-  const { data: existing } = await supabase
+  const { data: existing, error: existingError } = await supabase
     .from("preferences")
     .select(
       "budget_min_paise, budget_max_paise, pace, interests, food_notes, must_see, avoid",
@@ -34,6 +35,9 @@ async function CardEditor({ params }: { params: Promise<{ id: string }> }) {
     .eq("trip_id", id)
     .eq("user_id", user.id)
     .maybeSingle();
+  // Never show a blank form after a failed read: saving it would overwrite
+  // the answers you already gave.
+  if (existingError) throw new Error("Could not load your answers");
 
   const defaults: PreferenceDefaults = {
     budget_min_paise: existing?.budget_min_paise ?? null,
