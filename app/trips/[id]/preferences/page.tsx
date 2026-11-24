@@ -30,7 +30,7 @@ async function CardEditor({ params }: { params: Promise<{ id: string }> }) {
   const { data: existing, error: existingError } = await supabase
     .from("preferences")
     .select(
-      "budget_min_paise, budget_max_paise, pace, interests, food_notes, must_see, avoid",
+      "pace, interests, food_notes, must_see, avoid",
     )
     .eq("trip_id", id)
     .eq("user_id", user.id)
@@ -40,8 +40,6 @@ async function CardEditor({ params }: { params: Promise<{ id: string }> }) {
   if (existingError) throw new Error("Could not load your answers");
 
   const defaults: PreferenceDefaults = {
-    budget_min_paise: existing?.budget_min_paise ?? null,
-    budget_max_paise: existing?.budget_max_paise ?? null,
     pace: existing?.pace ?? null,
     interests: existing?.interests ?? [],
     food_notes: existing?.food_notes ?? null,

@@ -46,6 +46,9 @@ function input(overrides: Partial<NextStepInput> = {}): NextStepInput {
     trip: { destination: null, startDate: null, endDate: null },
     polls: {},
     myCardAnswered: true,
+    myBudgetSubmitted: true,
+    budget: { status: "band", respondents: 3, low_minor: 2_000_000, high_minor: 2_600_000, step_minor: 100_000, currency: "INR", scope: "total_per_person_incl_flights" },
+    hasPlanningBounds: false,
     nudges: {},
     ...overrides,
   };
@@ -121,16 +124,38 @@ describe("computeNextStep", () => {
     expect(step.nudgedBy).toBe("Asha");
   });
 
-  it("then your vote on dates, before your card and the destination", () => {
+  it("then your vote on dates, before your budget and the destination", () => {
     const step = computeNextStep(
-      input({ polls: { dates: datesPoll({ b: "o1" }), destination: destPoll() }, myCardAnswered: false }),
+      input({ polls: { dates: datesPoll({ b: "o1" }), destination: destPoll() }, myBudgetSubmitted: false }),
     );
     expect(step.title).toBe("Vote on the dates");
   });
 
-  it("then your private preference card", () => {
-    const step = computeNextStep(input({ polls: { dates: datesPoll({ a: "o1" }) }, myCardAnswered: false }));
-    expect(step.target).toBe("preferences");
+  it("then your private budget range (PRD order: who, dates, budget, destination)", () => {
+    const step = computeNextStep(
+      input({ polls: { dates: datesPoll({ a: "o1" }), destination: destPoll() }, myBudgetSubmitted: false }),
+    );
+    expect(step.target).toBe("budget");
+    expect(step.detail).toMatch(/including flights/);
+  });
+
+  it("says honestly when budget ranges do not overlap", () => {
+    const decided = { destination: "Goa", startDate: "2027-01-12", endDate: "2027-01-15" };
+    const step = computeNextStep(input({ trip: decided, budget: { status: "no_overlap", respondents: 4 } }));
+    expect(step.title).toBe("No shared budget range yet");
+  });
+
+  it("with fewer than 3 budget answers, asks planners to record agreed bounds", () => {
+    const decided = { destination: "Goa", startDate: "2027-01-12", endDate: "2027-01-15" };
+    const budget = { status: "insufficient" as const, respondents: 2, needed: 3 };
+    expect(computeNextStep(input({ trip: decided, budget })).title).toBe("Record the budget bounds the group agreed");
+    expect(computeNextStep(input({ meId: "b", trip: decided, budget })).title).toBe("Waiting for budget answers");
+    expect(computeNextStep(input({ trip: decided, budget, hasPlanningBounds: true })).title).toBe("Decide is done");
+  });
+
+  it("the optional preference card comes last", () => {
+    const decided = { destination: "Goa", startDate: "2027-01-12", endDate: "2027-01-15" };
+    expect(computeNextStep(input({ trip: decided, myCardAnswered: false })).target).toBe("preferences");
   });
 
   it("suggests starting a vote when nothing is suggested yet", () => {

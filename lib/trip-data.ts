@@ -1,5 +1,6 @@
 import { notFound, redirect } from "next/navigation";
 import {
+  type BudgetBand,
   isNudgeTopic,
   isPollKind,
   isRole,
@@ -20,6 +21,12 @@ export type TripContext = {
     destination: string | null;
     startDate: string | null;
     endDate: string | null;
+    timezone: string;
+    currency: string;
+    planningMin: number | null;
+    planningMax: number | null;
+    planningSetBy: string | null;
+    planningSetAt: string | null;
   };
   me: Member;
   members: Member[];
@@ -27,7 +34,10 @@ export type TripContext = {
   /** Nudges sent to me: topic -> sender's name. */
   nudgesToMe: Partial<Record<NudgeTopic, string>>;
   myCardAnswered: boolean;
+  myBudgetSubmitted: boolean;
   cardsAnswered: number;
+  /** Only what trip_budget_band() releases: a count, "no overlap" or a rounded band. */
+  budget: BudgetBand;
 };
 
 /**
@@ -45,11 +55,13 @@ export async function loadTripContext(tripId: string): Promise<TripContext> {
   } = await supabase.auth.getUser();
   if (!user) redirect("/login");
 
-  const [tripRes, membersRes, pollsRes, optionsRes, votesRes, nudgesRes, answeredRes] =
+  const [tripRes, membersRes, pollsRes, optionsRes, votesRes, nudgesRes, progressRes, bandRes] =
     await Promise.all([
       supabase
         .from("trips")
-        .select("id, name, destination, start_date, end_date")
+        .select(
+          "id, name, destination, start_date, end_date, timezone, currency, planning_budget_min_minor, planning_budget_max_minor, planning_bounds_set_by, planning_bounds_set_at",
+        )
         .eq("id", tripId)
         .maybeSingle(),
       supabase
@@ -71,11 +83,14 @@ export async function loadTripContext(tripId: string): Promise<TripContext> {
         .select("topic, from_user")
         .eq("trip_id", tripId)
         .eq("to_user", user.id),
-      supabase.rpc("trip_response_status", { _trip_id: tripId }),
+      // Counts only: nobody learns who has or has not answered.
+      supabase.rpc("preference_progress", { _trip_id: tripId }),
+      // The only view of other people's budgets: suppressed below 3 answers.
+      supabase.rpc("trip_budget_band", { _trip_id: tripId }),
     ]);
 
   // A failed read is an error (shown with a retry button), never an empty trip.
-  for (const res of [tripRes, membersRes, pollsRes, optionsRes, votesRes, nudgesRes, answeredRes]) {
+  for (const res of [tripRes, membersRes, pollsRes, optionsRes, votesRes, nudgesRes, progressRes, bandRes]) {
     if (res.error) throw new Error("Could not load this trip");
   }
   const trip = tripRes.data;
@@ -124,7 +139,12 @@ export async function loadTripContext(tripId: string): Promise<TripContext> {
     if (isNudgeTopic(n.topic)) nudgesToMe[n.topic] = nameOf(n.from_user);
   }
 
-  const answered = (answeredRes.data ?? []) as { user_id: string; has_answered: boolean }[];
+  const progress = progressRes.data as {
+    cards_submitted: number;
+    me_card_submitted: boolean;
+    me_budget_submitted: boolean;
+  };
+  const toNumber = (v: unknown) => (v === null || v === undefined ? null : Number(v));
 
   return {
     userId: user.id,
@@ -134,12 +154,20 @@ export async function loadTripContext(tripId: string): Promise<TripContext> {
       destination: trip.destination,
       startDate: trip.start_date,
       endDate: trip.end_date,
+      timezone: trip.timezone,
+      currency: trip.currency,
+      planningMin: toNumber(trip.planning_budget_min_minor),
+      planningMax: toNumber(trip.planning_budget_max_minor),
+      planningSetBy: trip.planning_bounds_set_by,
+      planningSetAt: trip.planning_bounds_set_at,
     },
     me,
     members,
     polls,
     nudgesToMe,
-    myCardAnswered: answered.some((a) => a.user_id === user.id && a.has_answered),
-    cardsAnswered: answered.filter((a) => a.has_answered).length,
+    myCardAnswered: progress.me_card_submitted,
+    myBudgetSubmitted: progress.me_budget_submitted,
+    cardsAnswered: progress.cards_submitted,
+    budget: bandRes.data as BudgetBand,
   };
 }

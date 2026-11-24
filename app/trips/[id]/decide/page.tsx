@@ -65,12 +65,21 @@ function NudgeButton({ ctx, member, topic }: { ctx: TripContext; member: Member;
   );
 }
 
+function TripFacts({ ctx }: { ctx: TripContext }) {
+  return (
+    <p className="mt-3 text-sm text-zinc-500">
+      Time zone {ctx.trip.timezone.replace(/_/g, " ")} · Currency {ctx.trip.currency} (fixed)
+    </p>
+  );
+}
+
 function TripNameCard({ ctx }: { ctx: TripContext }) {
   if (!canPlan(ctx.me.role)) {
     return (
       <Card title="Trip name">
         <p className="text-lg text-zinc-950 dark:text-zinc-50">{ctx.trip.name}</p>
         <Muted>The organiser or a co-planner can rename it.</Muted>
+        <TripFacts ctx={ctx} />
       </Card>
     );
   }
@@ -92,6 +101,7 @@ function TripNameCard({ ctx }: { ctx: TripContext }) {
           Save
         </SubmitButton>
       </ActionForm>
+      <TripFacts ctx={ctx} />
     </Card>
   );
 }
@@ -460,16 +470,35 @@ async function Decide({ params }: { params: Promise<{ id: string }> }) {
           ← {ctx.trip.name}
         </Link>
         <h1 className="text-3xl font-semibold tracking-tight text-zinc-950 dark:text-zinc-50">Decide</h1>
-        <Muted>Who&apos;s coming, when, and where. In that order.</Muted>
+        <Muted>Who&apos;s coming, when, the budget, and where. In that order.</Muted>
       </div>
       <TripNameCard ctx={ctx} />
       <InviteAndRoles ctx={ctx} />
       <WhoIsComing ctx={ctx} />
       <PollSection ctx={ctx} kind="dates" />
+      <Card title="Budget" id="budget">
+        <div className="flex flex-col gap-3">
+          <Muted>
+            Each person adds a private range (total per person, including flights, in{" "}
+            {ctx.trip.currency}).{" "}
+            {ctx.budget.status === "insufficient"
+              ? `${ctx.budget.respondents} of ${ctx.budget.needed} answers needed for the group comfort zone.`
+              : ctx.budget.status === "no_overlap"
+                ? "The ranges don't overlap yet."
+                : `Comfort zone ready from ${ctx.budget.respondents} answers.`}
+          </Muted>
+          <div>
+            <Link href={`/trips/${ctx.trip.id}/budget`} className={smallPrimaryButton}>
+              {ctx.myBudgetSubmitted ? "See budget" : "Add my private range"}
+            </Link>
+          </div>
+        </div>
+      </Card>
+      <PollSection ctx={ctx} kind="destination" />
       <Card title="Your private preference card">
         <div className="flex flex-col gap-3">
           <Muted>
-            Budget, pace and must-sees. Only you can see your answers.{" "}
+            Pace, interests and must-sees. Only you can see your answers.{" "}
             {ctx.cardsAnswered} of {ctx.members.length} have filled theirs in.
           </Muted>
           <div>
@@ -479,7 +508,6 @@ async function Decide({ params }: { params: Promise<{ id: string }> }) {
           </div>
         </div>
       </Card>
-      <PollSection ctx={ctx} kind="destination" />
     </>
   );
 }

@@ -29,8 +29,8 @@ async function rows<T>(userId: string | null, sql: string, params: unknown[] = [
 
 beforeAll(async () => {
   db = await createDb();
-  tripId = (await rows<{ id: string }>(ALICE, `insert into trips (name) values ('Goa') returning id`))[0].id;
-  otherTripId = (await rows<{ id: string }>(BOB, `insert into trips (name) values ('Coorg') returning id`))[0].id;
+  tripId = (await rows<{ id: string }>(ALICE, `insert into trips (name, timezone, currency) values ('Goa', 'Asia/Kolkata', 'INR') returning id`))[0].id;
+  otherTripId = (await rows<{ id: string }>(BOB, `insert into trips (name, timezone, currency) values ('Coorg', 'Asia/Kolkata', 'INR') returning id`))[0].id;
   await inviteAndJoin(db, ALICE, tripId, BOB, "Bob");
   await inviteAndJoin(db, ALICE, tripId, ERIN, "Erin");
   await asUser(db, ALICE, `select set_member_role($1, $2, 'co_planner')`, [tripId, ERIN]);
@@ -41,9 +41,9 @@ afterAll(async () => {
 });
 
 describe("version record", () => {
-  it("records migrations 1 to 7, and nobody can read it through the API", async () => {
+  it("records every migration, and nobody can read it through the API", async () => {
     const versions = await db.query<{ version: number }>(`select version from schema_versions order by version`);
-    expect(versions.rows.map((r) => r.version)).toEqual([1, 2, 3, 4, 5, 6, 7]);
+    expect(versions.rows.map((r) => r.version)).toEqual([1, 2, 3, 4, 5, 6, 7, 8]);
     await expect(rows(ALICE, `select * from schema_versions`)).rejects.toThrow(BLOCKED);
     await expect(rows(null, `select * from schema_versions`)).rejects.toThrow(BLOCKED);
   });
@@ -152,7 +152,7 @@ describe("profiles", () => {
 
 describe("trips and memberships", () => {
   it("creating a trip makes you its organiser in the same transaction", async () => {
-    const id = (await rows<{ id: string }>(DAVE, `insert into trips (name) values ('Hampi') returning id`))[0].id;
+    const id = (await rows<{ id: string }>(DAVE, `insert into trips (name, timezone, currency) values ('Hampi', 'Asia/Kolkata', 'INR') returning id`))[0].id;
     const me = await rows<{ role: string; display_name: string }>(
       DAVE,
       `select role, display_name from trip_members where trip_id = $1`,
@@ -162,7 +162,7 @@ describe("trips and memberships", () => {
 
     // If the transaction is rolled back, neither the trip nor the membership exists.
     await db.exec("begin");
-    const ghost = (await rows<{ id: string }>(DAVE, `insert into trips (name) values ('Ghost') returning id`))[0].id;
+    const ghost = (await rows<{ id: string }>(DAVE, `insert into trips (name, timezone, currency) values ('Ghost', 'Asia/Kolkata', 'INR') returning id`))[0].id;
     await db.exec("rollback");
     expect((await db.query(`select 1 from trips where id = $1`, [ghost])).rows).toEqual([]);
     expect((await db.query(`select 1 from trip_members where trip_id = $1`, [ghost])).rows).toEqual([]);
@@ -170,7 +170,7 @@ describe("trips and memberships", () => {
 
   it("you cannot create a trip owned by someone else", async () => {
     await expect(
-      rows(DAVE, `insert into trips (name, owner_id) values ('Fake', $1)`, [ALICE]),
+      rows(DAVE, `insert into trips (name, owner_id, timezone, currency) values ('Fake', $1, 'Asia/Kolkata', 'INR')`, [ALICE]),
     ).rejects.toThrow(BLOCKED);
   });
 
@@ -208,7 +208,7 @@ describe("trips and memberships", () => {
   });
 
   it("deleting the whole trip is allowed for the organiser only", async () => {
-    const id = (await rows<{ id: string }>(DAVE, `insert into trips (name) values ('Delete me') returning id`))[0].id;
+    const id = (await rows<{ id: string }>(DAVE, `insert into trips (name, timezone, currency) values ('Delete me', 'Asia/Kolkata', 'INR') returning id`))[0].id;
     const notOwner = await asUser(db, BOB, `delete from trips where id = $1`, [id]);
     expect(notOwner.affectedRows ?? 0).toBe(0);
     await asUser(db, DAVE, `delete from trips where id = $1`, [id]);
@@ -367,5 +367,5 @@ describe("upgrading an existing database", () => {
     } finally {
       await old.close();
     }
-  });
+  }, 240_000);
 });

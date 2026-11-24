@@ -28,6 +28,8 @@ export async function createTrip(
       destination: parsed.destination,
       start_date: parsed.startDate,
       end_date: parsed.endDate,
+      timezone: parsed.timezone,
+      currency: parsed.currency,
     })
     .select("id")
     .single();

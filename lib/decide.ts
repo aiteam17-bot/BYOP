@@ -209,12 +209,29 @@ export type NextStep = {
   nudgedBy?: string;
 };
 
+/** What trip_budget_band() released: never individual numbers. */
+export type BudgetBand =
+  | { status: "insufficient"; respondents: number; needed: number }
+  | { status: "no_overlap"; respondents: number }
+  | {
+      status: "band";
+      respondents: number;
+      low_minor: number;
+      high_minor: number;
+      step_minor: number;
+      currency: string;
+      scope: "total_per_person_incl_flights";
+    };
+
 export type NextStepInput = {
   meId: string;
   members: Member[];
   trip: TripBasics;
   polls: Partial<Record<PollKind, Poll>>;
   myCardAnswered: boolean;
+  myBudgetSubmitted: boolean;
+  budget: BudgetBand;
+  hasPlanningBounds: boolean;
   /** Nudges sent to me, by topic -> sender name. */
   nudges: Partial<Record<NudgeTopic, string>>;
 };
@@ -247,12 +264,13 @@ export function computeNextStep(input: NextStepInput): NextStep {
         nudgedBy: nudges[kind],
       };
     }
-    if (kind === "dates" && !input.myCardAnswered) {
+    if (kind === "dates" && !input.myBudgetSubmitted) {
       return {
-        title: "Fill in your private preference card",
-        detail: "Your budget, pace and must-sees. Only you can see your answers.",
-        target: "preferences",
-        cta: "Fill in",
+        title: "Add your private budget range",
+        detail:
+          "Total per person for the whole trip, including flights. Nobody sees your numbers, not even the organiser.",
+        target: "budget",
+        cta: "Add my range",
       };
     }
   }
@@ -274,6 +292,17 @@ export function computeNextStep(input: NextStepInput): NextStep {
             cta: "Suggest a place",
           };
     }
+  }
+
+  // Budget ranges that do not overlap block planning for everyone.
+  if (input.budget.status === "no_overlap") {
+    return {
+      title: "No shared budget range yet",
+      detail:
+        "At least one person's maximum is below someone else's minimum. Revisit your own range, or the dates or destination.",
+      target: "budget",
+      cta: "Review budget",
+    };
   }
 
   // 3. Organiser / co-planner: a vote everyone has answered is ready to settle.
@@ -331,6 +360,34 @@ export function computeNextStep(input: NextStepInput): NextStep {
       detail: `${listNames(names)} ${names.length === 1 ? "hasn't" : "haven't"} said if they're coming.`,
       target: "decide#who",
       cta: "Nudge",
+    };
+  }
+
+  // Fewer than 3 budget answers: no band can be shown, so plan within bounds
+  // the group explicitly agreed.
+  if (input.budget.status === "insufficient" && !input.hasPlanningBounds) {
+    const needed = input.budget.needed - input.budget.respondents;
+    return planner
+      ? {
+          title: "Record the budget bounds the group agreed",
+          detail: `The private comfort zone needs ${needed} more answer${needed === 1 ? "" : "s"}. Until then, plan within bounds everyone agreed to.`,
+          target: "budget",
+          cta: "Record bounds",
+        }
+      : {
+          title: "Waiting for budget answers",
+          detail: `The private comfort zone needs ${needed} more answer${needed === 1 ? "" : "s"}, or bounds the group agrees.`,
+          target: "budget",
+          cta: "See budget",
+        };
+  }
+
+  if (!input.myCardAnswered) {
+    return {
+      title: "Fill in your private preference card",
+      detail: "Your pace, interests and must-sees. Only you can see your answers.",
+      target: "preferences",
+      cta: "Fill in",
     };
   }
 

@@ -10,7 +10,7 @@ beforeAll(async () => {
   const trip = await asUser<{ id: string }>(
     db,
     ALICE,
-    `insert into trips (name) values ('Goa') returning id`,
+    `insert into trips (name, timezone, currency) values ('Goa', 'Asia/Kolkata', 'INR') returning id`,
   );
   tripId = trip.rows[0].id;
   await inviteAndJoin(db, ALICE, trip.rows[0].id, BOB, 'Bob');

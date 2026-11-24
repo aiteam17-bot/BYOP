@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import { safeNextPath } from "@/lib/auth-redirect";
 import {
   paiseToRupeesString,
+  parseBudgetRange,
   parsePreferences,
   parseRupees,
   parseTripInput,
@@ -41,10 +42,10 @@ describe("parseRupees", () => {
 });
 
 describe("parsePreferences", () => {
-  it("accepts a full card and returns paise", () => {
+  it("accepts a full card (budget is no longer part of it)", () => {
     const result = parsePreferences(
       form({
-        budget_min: "10000",
+        budget_min: "10000", // ignored: the budget has its own private form
         budget_max: "25,000",
         pace: "balanced",
         interests: ["Beaches", "Food"],
@@ -57,8 +58,6 @@ describe("parsePreferences", () => {
     expect(result).toEqual({
       ok: true,
       data: {
-        budget_min_paise: 1_000_000,
-        budget_max_paise: 2_500_000,
         pace: "balanced",
         interests: ["Beaches", "Food", "Scuba diving"],
         food_notes: "Vegetarian",
@@ -73,13 +72,6 @@ describe("parsePreferences", () => {
     expect(result.ok).toBe(true);
   });
 
-  it("rejects a maximum below the minimum", () => {
-    const result = parsePreferences(
-      form({ budget_min: "20000", budget_max: "10000" }),
-    );
-    expect(result.ok).toBe(false);
-    if (!result.ok) expect(result.errors.budget_max).toMatch(/at least/);
-  });
 
   it("rejects an unknown pace and ignores unknown ticked interests", () => {
     const bad = parsePreferences(form({ pace: "ludicrous" }));
@@ -95,21 +87,52 @@ describe("parsePreferences", () => {
   });
 });
 
+describe("parseBudgetRange", () => {
+  it("returns integer minor units, accepting symbols and commas", () => {
+    expect(parseBudgetRange(form({ budget_min: "₹20,000", budget_max: "25000.50" }))).toEqual({
+      ok: true,
+      min: 2_000_000,
+      max: 2_500_050,
+    });
+  });
+  it("requires both amounts, and max >= min", () => {
+    expect(parseBudgetRange(form({ budget_min: "20000" })).ok).toBe(false);
+    const backwards = parseBudgetRange(form({ budget_min: "20000", budget_max: "10000" }));
+    expect(backwards.ok).toBe(false);
+    if (!backwards.ok) expect(backwards.errors.budget_max).toMatch(/at least/);
+  });
+  it("rejects negatives, decimals beyond 2 places and text", () => {
+    for (const bad of ["-5", "10.555", "lots", "1e5"]) {
+      expect(parseBudgetRange(form({ budget_min: bad, budget_max: "50000" })).ok, bad).toBe(false);
+    }
+  });
+});
+
 describe("parseTripInput", () => {
+  const base = { timezone: "Asia/Kolkata", currency: "INR" };
   it("requires a name and trims", () => {
-    expect(parseTripInput(form({ name: "  Goa  ", destination: " " }))).toEqual({
+    expect(parseTripInput(form({ name: "  Goa  ", destination: " ", ...base }))).toEqual({
       ok: true,
       name: "Goa",
       destination: null,
       startDate: null,
       endDate: null,
+      timezone: "Asia/Kolkata",
+      currency: "INR",
     });
-    expect(parseTripInput(form({ name: "  " })).ok).toBe(false);
+    expect(parseTripInput(form({ name: "  ", ...base })).ok).toBe(false);
+  });
+
+  it("requires a real time zone and a supported currency", () => {
+    expect(parseTripInput(form({ name: "Goa", currency: "INR" })).ok).toBe(false);
+    expect(parseTripInput(form({ name: "Goa", timezone: "Mars/Base", currency: "INR" })).ok).toBe(false);
+    expect(parseTripInput(form({ name: "Goa", timezone: "IST", currency: "INR" })).ok).toBe(false);
+    expect(parseTripInput(form({ name: "Goa", timezone: "Asia/Kolkata", currency: "XYZ" })).ok).toBe(false);
   });
 
   it("accepts dates only as a valid pair, end after start", () => {
     const ok = parseTripInput(
-      form({ name: "Goa", start_date: "2026-12-10", end_date: "2026-12-14" }),
+      form({ name: "Goa", start_date: "2026-12-10", end_date: "2026-12-14", ...base }),
     );
     expect(ok.ok && [ok.startDate, ok.endDate]).toEqual(["2026-12-10", "2026-12-14"]);
 
@@ -120,7 +143,7 @@ describe("parseTripInput", () => {
       { start_date: "2026-02-31", end_date: "2026-03-05" }, // not a real day
       { start_date: "2026-01-01", end_date: "2026-06-01" }, // far too long
     ]) {
-      expect(parseTripInput(form({ name: "Goa", ...bad })).ok).toBe(false);
+      expect(parseTripInput(form({ name: "Goa", ...base, ...bad })).ok).toBe(false);
     }
   });
 });

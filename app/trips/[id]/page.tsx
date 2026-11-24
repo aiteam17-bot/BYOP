@@ -13,6 +13,7 @@ import {
   type PollKind,
 } from "@/lib/decide";
 import { toMapPlaces } from "@/lib/map-config";
+import { formatMoney } from "@/lib/money";
 import { createClient } from "@/lib/supabase/server";
 import { loadTripContext, type TripContext } from "@/lib/trip-data";
 
@@ -40,6 +41,9 @@ function NextStepCard({ ctx }: { ctx: TripContext }) {
     trip: ctx.trip,
     polls: ctx.polls,
     myCardAnswered: ctx.myCardAnswered,
+    myBudgetSubmitted: ctx.myBudgetSubmitted,
+    budget: ctx.budget,
+    hasPlanningBounds: ctx.trip.planningMin !== null,
     nudges: ctx.nudgesToMe,
   });
   return (
@@ -75,6 +79,19 @@ function decisionLine(ctx: TripContext, kind: PollKind): string {
   return `Voting: ${poll.options.length} option${poll.options.length === 1 ? "" : "s"}, ${summary.votedIds.length} of ${ctx.members.length} voted`;
 }
 
+function budgetLine(ctx: TripContext): string {
+  const b = ctx.budget;
+  if (b.status === "band") {
+    return `Comfort zone ${formatMoney(b.low_minor, b.currency)} – ${formatMoney(b.high_minor, b.currency)} per person (${b.respondents} answers)`;
+  }
+  if (b.status === "no_overlap") return `No shared range yet (${b.respondents} answers)`;
+  const bounds =
+    ctx.trip.planningMin !== null && ctx.trip.planningMax !== null
+      ? ` · agreed bounds ${formatMoney(ctx.trip.planningMin, ctx.trip.currency)} – ${formatMoney(ctx.trip.planningMax, ctx.trip.currency)}`
+      : "";
+  return `${b.respondents} of ${b.needed} private answers${bounds}`;
+}
+
 function DecideTab({ ctx }: { ctx: TripContext }) {
   const counts = rsvpCounts(ctx.members);
   const rows = [
@@ -84,12 +101,13 @@ function DecideTab({ ctx }: { ctx: TripContext }) {
       href: "decide#who",
     },
     { label: "Dates", value: decisionLine(ctx, "dates"), href: "decide#dates" },
+    { label: "Budget", value: budgetLine(ctx), href: "budget" },
+    { label: "Destination", value: decisionLine(ctx, "destination"), href: "decide#destination" },
     {
       label: "Preference cards",
       value: `${ctx.cardsAnswered} of ${ctx.members.length} filled in (answers stay private)`,
       href: "preferences",
     },
-    { label: "Destination", value: decisionLine(ctx, "destination"), href: "decide#destination" },
   ];
   return (
     <Card>

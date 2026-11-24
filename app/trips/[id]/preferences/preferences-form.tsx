@@ -11,13 +11,10 @@ import {
   INTEREST_OPTIONS,
   PACE_LABELS,
   PACE_OPTIONS,
-  paiseToRupeesString,
 } from "@/lib/validation";
 import { savePreferences, type PreferencesState } from "./actions";
 
 export type PreferenceDefaults = {
-  budget_min_paise: number | null;
-  budget_max_paise: number | null;
   pace: string | null;
   interests: string[];
   food_notes: string | null;
@@ -45,35 +42,6 @@ export function PreferencesForm({
 
   return (
     <form action={action} className="flex flex-col gap-8">
-      <fieldset className="flex flex-col gap-3">
-        <legend className="mb-1 text-base font-semibold text-zinc-950 dark:text-zinc-50">
-          Budget range (in rupees, for the whole trip, per person)
-        </legend>
-        <div className="grid grid-cols-2 gap-4 max-md:grid-cols-1">
-          <label className={labelClass}>
-            From (₹)
-            <input
-              name="budget_min"
-              inputMode="decimal"
-              placeholder="Amount in ₹"
-              defaultValue={paiseToRupeesString(defaults.budget_min_paise)}
-              className={inputClass}
-            />
-            <FieldError message={errors.budget_min} />
-          </label>
-          <label className={labelClass}>
-            To (₹)
-            <input
-              name="budget_max"
-              inputMode="decimal"
-              placeholder="Amount in ₹"
-              defaultValue={paiseToRupeesString(defaults.budget_max_paise)}
-              className={inputClass}
-            />
-            <FieldError message={errors.budget_max} />
-          </label>
-        </div>
-      </fieldset>
 
       <fieldset className="flex flex-col gap-3">
         <legend className="mb-1 text-base font-semibold text-zinc-950 dark:text-zinc-50">

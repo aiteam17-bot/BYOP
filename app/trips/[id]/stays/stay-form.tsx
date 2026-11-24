@@ -11,7 +11,7 @@ import { CANCELLATION_LABELS } from "@/lib/stay-costs";
 import { CANCELLATION_TYPES } from "@/lib/stay-input";
 import { addStay, type AddStayState } from "./actions";
 
-export function StayForm({ tripId, today }: { tripId: string; today: string }) {
+export function StayForm({ tripId, today, symbol }: { tripId: string; today: string; symbol: string }) {
   const [state, action, pending] = useActionState<AddStayState, FormData>(
     addStay.bind(null, tripId),
     {},
@@ -40,18 +40,18 @@ export function StayForm({ tripId, today }: { tripId: string; today: string }) {
 
       <div className="grid grid-cols-3 gap-4 max-md:grid-cols-1">
         <label className={labelClass}>
-          Nightly price, whole stay (₹)
-          <input name="nightly" required inputMode="decimal" placeholder="Amount in ₹" className={inputClass} />
+          Nightly price, whole stay ({symbol})
+          <input name="nightly" required inputMode="decimal" placeholder="Amount" className={inputClass} />
           <FieldError message={errors.nightly} />
         </label>
         <label className={labelClass}>
-          Taxes, total (₹)
-          <input name="taxes" inputMode="decimal" placeholder="Amount in ₹ (optional)" className={inputClass} />
+          Taxes, total ({symbol})
+          <input name="taxes" inputMode="decimal" placeholder="Amount (optional)" className={inputClass} />
           <FieldError message={errors.taxes} />
         </label>
         <label className={labelClass}>
-          Fees, total (₹)
-          <input name="fees" inputMode="decimal" placeholder="Amount in ₹ (optional)" className={inputClass} />
+          Fees, total ({symbol})
+          <input name="fees" inputMode="decimal" placeholder="Amount (optional)" className={inputClass} />
           <FieldError message={errors.fees} />
         </label>
       </div>

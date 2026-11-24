@@ -1,5 +1,7 @@
 // Pure validation helpers shared by the server actions and the tests.
 
+import { isCurrency, isTimezone, type Currency } from "@/lib/money";
+
 export const PACE_OPTIONS = ["relaxed", "balanced", "packed"] as const;
 export type Pace = (typeof PACE_OPTIONS)[number];
 
@@ -41,7 +43,7 @@ export function parseRupees(
   const cleaned = raw.replace(/[\s,₹]/g, "");
   if (cleaned === "") return { ok: true, value: null };
   if (!/^\d+(\.\d{1,2})?$/.test(cleaned)) {
-    return { ok: false, error: "Enter an amount in rupees, like 15000" };
+    return { ok: false, error: "Enter an amount, like 15000" };
   }
   const [whole, fraction = ""] = cleaned.split(".");
   if (Number(whole) > MAX_RUPEES) {
@@ -52,8 +54,6 @@ export function parseRupees(
 }
 
 export type PreferenceInput = {
-  budget_min_paise: number | null;
-  budget_max_paise: number | null;
   pace: Pace | null;
   interests: string[];
   food_notes: string | null;
@@ -62,7 +62,7 @@ export type PreferenceInput = {
 };
 
 export type FieldErrors = Partial<
-  Record<"budget_min" | "budget_max" | "pace" | "interests" | "food_notes" | "must_see" | "avoid", string>
+  Record<"pace" | "interests" | "food_notes" | "must_see" | "avoid", string>
 >;
 
 function text(form: FormData, key: string): string {
@@ -76,18 +76,6 @@ export function parsePreferences(
   | { ok: true; data: PreferenceInput }
   | { ok: false; errors: FieldErrors } {
   const errors: FieldErrors = {};
-
-  const min = parseRupees(text(form, "budget_min"));
-  const max = parseRupees(text(form, "budget_max"));
-  if (!min.ok) errors.budget_min = min.error;
-  if (!max.ok) errors.budget_max = max.error;
-  if (
-    min.ok && max.ok &&
-    min.value !== null && max.value !== null &&
-    max.value < min.value
-  ) {
-    errors.budget_max = "Maximum must be at least the minimum";
-  }
 
   const paceRaw = text(form, "pace");
   let pace: Pace | null = null;
@@ -131,8 +119,6 @@ export function parsePreferences(
   return {
     ok: true,
     data: {
-      budget_min_paise: min.ok ? min.value : null,
-      budget_max_paise: max.ok ? max.value : null,
       pace,
       interests,
       food_notes: texts.food_notes,
@@ -201,6 +187,8 @@ export function parseTripInput(
       destination: string | null;
       startDate: string | null;
       endDate: string | null;
+      timezone: string;
+      currency: Currency;
     }
   | { ok: false; error: string } {
   const name = text(form, "name");
@@ -212,11 +200,46 @@ export function parseTripInput(
   }
   const dates = parseTripDates(text(form, "start_date"), text(form, "end_date"));
   if (!dates.ok) return dates;
+  const timezone = text(form, "timezone");
+  if (!isTimezone(timezone)) return { ok: false, error: "Choose the trip's time zone" };
+  const currency = text(form, "currency");
+  if (!isCurrency(currency)) return { ok: false, error: "Choose the trip's currency" };
   return {
     ok: true,
     name,
     destination: destination === "" ? null : destination,
     startDate: dates.startDate,
     endDate: dates.endDate,
+    timezone,
+    currency,
   };
+}
+
+export type BudgetErrors = Partial<Record<"budget_min" | "budget_max", string>>;
+
+/**
+ * A private budget range: total per person for the whole trip, including
+ * flights, in the trip currency. Both amounts are required and min <= max.
+ * Returns integer minor units (no floating point).
+ */
+export function parseBudgetRange(
+  form: FormData,
+):
+  | { ok: true; min: number; max: number }
+  | { ok: false; errors: BudgetErrors } {
+  const errors: BudgetErrors = {};
+  const strip = (v: string) => v.replace(/[$€£₹]|\b[A-Z]{3}\b/g, "");
+  const min = parseRupees(strip(text(form, "budget_min")));
+  const max = parseRupees(strip(text(form, "budget_max")));
+  if (!min.ok) errors.budget_min = min.error;
+  else if (min.value === null) errors.budget_min = "Enter your minimum";
+  if (!max.ok) errors.budget_max = max.error;
+  else if (max.value === null) errors.budget_max = "Enter your maximum";
+  if (Object.keys(errors).length > 0 || !min.ok || !max.ok || min.value === null || max.value === null) {
+    return { ok: false, errors };
+  }
+  if (max.value < min.value) {
+    return { ok: false, errors: { budget_max: "Maximum must be at least the minimum" } };
+  }
+  return { ok: true, min: min.value, max: max.value };
 }

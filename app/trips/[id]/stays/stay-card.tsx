@@ -1,4 +1,5 @@
-import { formatDate, formatKm, formatRupees } from "@/lib/format";
+import { formatDate, formatKm } from "@/lib/format";
+import { formatMoney } from "@/lib/money";
 import {
   CANCELLATION_LABELS,
   capacityWarning,
@@ -19,16 +20,19 @@ export function StayCard({
   today,
   rank,
   sharers,
+  currency,
   removeAction,
 }: {
   data: StayCardData;
   today: string;
   rank: number;
   sharers: number;
+  currency: string;
   removeAction: () => Promise<void>;
 }) {
   const { stay, cost, tradeoff } = data;
   const link = safeHttpUrl(data.url);
+  const money = (minor: number) => formatMoney(minor, currency);
   const daysOld = data.priceCheckedOn ? nightsBetween(data.priceCheckedOn, today) : null;
   // No recorded check date is treated like an old price, never as "today".
   const stale = daysOld === null || daysOld > 7;
@@ -98,28 +102,23 @@ export function StayCard({
           <>
             <p className="text-sm text-zinc-500">True cost per person</p>
             <p className="text-3xl font-semibold tracking-tight text-zinc-950 dark:text-zinc-50">
-              {formatRupees(cost.perPersonPaise)}
+              {money(cost.perPersonPaise)}
             </p>
             <p className="text-sm text-zinc-600 dark:text-zinc-400">
-              {formatRupees(stay.nightlyPaise)} × {cost.nights}{" "}
+              {money(stay.nightlyPaise)} × {cost.nights}{" "}
               {cost.nights === 1 ? "night" : "nights"} ={" "}
-              {formatRupees(cost.roomCostPaise)}
-              <br />+ {formatRupees(stay.taxesPaise)} taxes
-              <br />+ {formatRupees(stay.feesPaise)} fees
-              <br />= {formatRupees(cost.stayTotalPaise)} ÷ {cost.sharers}{" "}
+              {money(cost.roomCostPaise)}
+              <br />+ {money(stay.taxesPaise)} taxes
+              <br />+ {money(stay.feesPaise)} fees
+              <br />= {money(cost.stayTotalPaise)} ÷ {cost.sharers}{" "}
               {cost.sharers === 1 ? "person" : "people"}
-            </p>
-            <p className="text-sm text-zinc-600 dark:text-zinc-400">
-              {stay.distanceCentiKm === null
-                ? "Local transport: add a distance to estimate it."
-                : `Estimated local transport: about ${formatRupees(cost.transportPerPersonPaise)} per person.`}
             </p>
           </>
         ) : (
           <>
             <p className="text-sm text-zinc-500">Nightly price</p>
             <p className="text-3xl font-semibold tracking-tight text-zinc-950 dark:text-zinc-50">
-              {formatRupees(stay.nightlyPaise)}
+              {money(stay.nightlyPaise)}
             </p>
             <p className="text-sm text-zinc-600 dark:text-zinc-400">
               Set the trip dates to see the true cost per person.

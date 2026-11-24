@@ -15,7 +15,7 @@ beforeAll(async () => {
   const trip = await asUser<{ id: string }>(
     db,
     ALICE,
-    `insert into trips (name, destination) values ('Goa', 'Goa, India')
+    `insert into trips (name, destination, timezone, currency) values ('Goa', 'Goa, India', 'Asia/Kolkata', 'INR')
      returning id`,
   );
   tripId = trip.rows[0].id;
@@ -149,59 +149,33 @@ describe("preferences are private (row-level security)", () => {
   });
 });
 
-describe("the trip page's 'who has answered' view", () => {
-  it("shows names and a yes/no flag, never any answers", async () => {
-    const status = await asUser<Record<string, unknown>>(
+describe("preference progress (counts only)", () => {
+  it("shows counts and your own status, never names or answers", async () => {
+    const res = await asUser<{ p: Record<string, unknown> }>(
       db,
-      ALICE,
-      `select * from trip_response_status($1)`,
+      BOB,
+      `select preference_progress($1) as p`,
       [tripId],
     );
-    expect(status.rows).toHaveLength(2);
-    // Exactly these four columns: there is nowhere for an answer to hide.
-    expect(Object.keys(status.rows[0]).sort()).toEqual(
-      ["display_name", "has_answered", "role", "user_id"].sort(),
-    );
-    expect(JSON.stringify(status.rows)).not.toMatch(/SECRET/);
+    expect(res.rows[0].p).toEqual({
+      members: 2,
+      cards_submitted: 2,
+      me_card_submitted: true,
+      me_budget_submitted: true,
+    });
+    expect(JSON.stringify(res.rows)).not.toMatch(/SECRET|alice|Bob/);
   });
 
-  it("lists the organiser first and who has answered", async () => {
-    const status = await asUser<{
-      display_name: string;
-      role: string;
-      has_answered: boolean;
-    }>(db, BOB, `select * from trip_response_status($1)`, [tripId]);
-    expect(status.rows.map((r) => [r.display_name, r.role, r.has_answered])).toEqual([
-      ["alice", "owner", true],
-      ["Bob", "member", true],
-    ]);
-  });
-
-  it("flags a member who has not answered yet as waiting", async () => {
-    // Dan joins but never fills in a card.
-    const DAN = "00000000-0000-0000-0000-00000000000d";
-    await db.exec(`insert into auth.users values ('${DAN}', 'dan@example.com')`);
-    await redeem(db, DAN, inviteToken, "Dan");
-
-    const status = await asUser<{ display_name: string; has_answered: boolean }>(
-      db,
-      ALICE,
-      `select display_name, has_answered from trip_response_status($1)`,
-      [tripId],
-    );
-    expect(status.rows.find((r) => r.display_name === "Dan")?.has_answered).toBe(
-      false,
-    );
+  it("the old per-person 'who has answered' list is no longer callable", async () => {
+    await expect(
+      asUser(db, ALICE, `select * from trip_response_status($1)`, [tripId]),
+    ).rejects.toThrow(BLOCKED);
   });
 
   it("returns nothing to someone who is not on the trip", async () => {
-    const status = await asUser(
-      db,
-      CAROL,
-      `select * from trip_response_status($1)`,
-      [tripId],
-    );
-    expect(status.rows).toHaveLength(0);
+    await expect(
+      asUser(db, CAROL, `select preference_progress($1)`, [tripId]),
+    ).rejects.toThrow(/not a member/);
   });
 });
 

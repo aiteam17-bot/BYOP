@@ -2,7 +2,8 @@ import { Suspense } from "react";
 import Link from "next/link";
 import { notFound, redirect } from "next/navigation";
 import { Card, Muted, Shell } from "@/components/ui";
-import { formatDate, formatKm, formatRupees } from "@/lib/format";
+import { formatDate, formatKm } from "@/lib/format";
+import { currencySymbol, formatMoney } from "@/lib/money";
 import { createClient } from "@/lib/supabase/server";
 import {
   compareStays,
@@ -47,7 +48,7 @@ async function StayComparison({ params }: { params: Promise<{ id: string }> }) {
   const [tripRes, membersRes, staysRes] = await Promise.all([
     supabase
       .from("trips")
-      .select("id, name, start_date, end_date, owner_id")
+      .select("id, name, start_date, end_date, owner_id, currency")
       .eq("id", id)
       .maybeSingle(),
     supabase
@@ -107,7 +108,7 @@ async function StayComparison({ params }: { params: Promise<{ id: string }> }) {
     stays,
     hasDates ? nights : null,
     sharers,
-    formatRupees,
+    (minor: number) => formatMoney(minor, trip.currency),
     formatKm,
   );
   const byId = new Map(stayRows.map((r) => [r.id, r]));
@@ -163,7 +164,7 @@ async function StayComparison({ params }: { params: Promise<{ id: string }> }) {
           Add a stay
         </summary>
         <div className="mt-5">
-          <StayForm tripId={id} today={today} />
+          <StayForm tripId={id} today={today} symbol={currencySymbol(trip.currency)} />
         </div>
       </details>
 
@@ -208,6 +209,7 @@ async function StayComparison({ params }: { params: Promise<{ id: string }> }) {
               today={today}
               rank={index + 1}
               sharers={sharers}
+              currency={trip.currency}
               removeAction={removeStay.bind(null, id, card.stay.id)}
             />
           ))}

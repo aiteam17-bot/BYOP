@@ -12,8 +12,8 @@ beforeAll(async () => {
   const trip = await asUser<{ id: string }>(
     db,
     ALICE,
-    `insert into trips (name, start_date, end_date)
-     values ('Goa', '2026-12-10', '2026-12-14') returning id`,
+    `insert into trips (name, start_date, end_date, timezone, currency)
+     values ('Goa', '2026-12-10', '2026-12-14', 'Asia/Kolkata', 'INR') returning id`,
   );
   tripId = trip.rows[0].id;
   await inviteAndJoin(db, ALICE, trip.rows[0].id, BOB, 'Bob');
