@@ -62,7 +62,14 @@ bytes); the first click only opened the confirmation; confirming removed
 `savedDishes`, `theme`) in place. The stays page loaded with "1 person
 sharing" and the empty state.
 
-Not deployed: this branch is not merged to `main` yet.
+Deployed 2026-11-24: `main` fast-forwarded to `6bf6725`; Vercel production
+deploy Ready. Live checks on https://byop-iota.vercel.app (signed in):
+- `/account`: "Old demo data in this browser · None found. Nothing to clean up."
+- stays: nightly price placeholder "Amount in ₹"; summary "… · 1 person sharing".
+- `/trips` lists the one existing trip; Trip home still shows
+  "Goa · 5–8 Feb 2027" and the Decide summary from stage 1.
+The error screens were not triggered live (that needs a database outage); they
+are covered by the build and code review only.
 
 ### Known issues found, not fixed in this pass
 - `/account` logs a Next.js dev warning: `Date.now()` during prerender inside
