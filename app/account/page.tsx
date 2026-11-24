@@ -23,7 +23,10 @@ async function AccountDetails() {
   return (
     <>
       <p className="text-lg text-zinc-700 dark:text-zinc-300">
-        Signed in as <strong>{user.email}</strong>
+        Signed in as{" "}
+        <strong>
+          {user.email ?? user.user_metadata?.user_name ?? "your account"}
+        </strong>
       </p>
       <Link
         href="/trips"

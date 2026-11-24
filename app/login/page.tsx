@@ -11,7 +11,7 @@ export default function LoginPage() {
           Sign in
         </h1>
         <p className="text-zinc-600 dark:text-zinc-400">
-          No password needed. We&apos;ll email you a link that signs you in.
+          Sign in with your GitHub account, or get a one-time link by email.
         </p>
         <Suspense fallback={null}>
           <LoginForm />

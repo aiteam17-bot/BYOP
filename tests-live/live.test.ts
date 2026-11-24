@@ -12,7 +12,7 @@ import { createClient, type SupabaseClient } from "@supabase/supabase-js";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 
 const url = process.env.NEXT_PUBLIC_SUPABASE_URL as string;
-const anonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY as string;
+const anonKey = (process.env.NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY || process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY) as string;
 const runId = Date.now().toString(36);
 
 type Person = { supabase: SupabaseClient; id: string; email: string };
@@ -53,7 +53,7 @@ const created: string[] = [];
 
 beforeAll(async () => {
   expect(url, "NEXT_PUBLIC_SUPABASE_URL missing from .env.local").toBeTruthy();
-  expect(anonKey, "NEXT_PUBLIC_SUPABASE_ANON_KEY missing from .env.local").toBeTruthy();
+  expect(anonKey, "NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY (or _ANON_KEY) missing from .env.local").toBeTruthy();
   alice = await newUser("alice");
   bob = await newUser("bob");
   carol = await newUser("carol");

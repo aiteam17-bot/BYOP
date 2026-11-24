@@ -49,7 +49,9 @@ async function InviteDetails({ params }: { params: Promise<{ token: string }> })
 
   if (preview.already_member) redirect(`/trips/${preview.trip_id}`);
 
-  const defaultName = (user.email ?? "").split("@")[0];
+  const defaultName =
+    (user.user_metadata?.user_name as string | undefined) ??
+    (user.email ?? "").split("@")[0];
 
   return (
     <>
