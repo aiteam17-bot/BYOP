@@ -13,10 +13,45 @@ mock APIs, simulated AI or invented prices. Test fixtures exist only inside
 
 ## Latest: Shape stage, PRD 05 itinerary + 06 map/comments (2026-11-25)
 
-Branch `feat/shape-itinerary` (built on `feat/budget-privacy`). Not merged,
-not deployed. **Migrations 008 and 009 are not applied to production**, so
-nothing from PRD 03, 05 or 06 is live, and none of it has been seen in a
-browser against a real database yet.
+**Live.** Migrations 008 and 009 applied to `bbqsuwsloegyjutbefjd`;
+`feat/shape-itinerary` merged to `main` at `0532800`; Vercel production
+deploy Ready.
+
+### Applied and verified live (2026-11-25)
+- Read-only pre-check: versions 1–7; preferences 0 rows (none violate the new
+  budget rules); trips 2, both supported currencies; itinerary stops 0;
+  Realtime publication has no tables.
+- 008 then 009 in SQL Editor: each "Success. No rows returned" (after the
+  expected "destructive operation" warning for revokes and default drops).
+- Read-only post-check: versions 1–9; tables without RLS 0; anon SELECT on
+  any table 0; SECURITY DEFINER functions without pinned search_path 0;
+  direct INSERT on itinerary_items for authenticated: false;
+  trip_response_status executable: false; trips.timezone/currency have no
+  default; existing trips got Asia/Kolkata; Realtime tables 0; trips 2.
+- `/api/health` → `200 {"status":"ok","database":"ok"}`.
+- Trip home: Budget row "0 of 3 private answers".
+- Budget: max below min refused ("Maximum must be at least the minimum");
+  a valid range saved ("Saved. Only you can see your numbers."), request
+  status 200 (PerformanceResourceTiming); after reload my own range was
+  prefilled and the group view showed only "1 of 3 answers needed".
+- Itinerary (trip dated 5–8 Feb 2027, Asia/Kolkata): day tabs "Day 1 · Fri 5
+  Feb" … "Day 4 · Mon 8 Feb"; added Fort Aguada 10:00 for 90 min (₹250,
+  pinned) and Lunch 11:00 for 60 min → "Lunch at Candolim starts at 11:00,
+  before Fort Aguada ends at 11:30."; voted For and commented; after reload
+  Fort Aguada "Agreed by everyone" with the vote and comment, Lunch
+  "Proposed" and "Not voted"; day map 1 pin on loaded OSM tiles, Lunch under
+  "Not on the map yet". Database `starts_at`: Fort Aguada 2027-02-06 04:30
+  UTC, Lunch 05:30 UTC (= 10:00 / 11:00 IST).
+- A Chrome-extension network capture reported 503 for those POSTs; the
+  browser's own timing data showed 200 and the writes persisted, so the 503
+  was a capture artefact, not a server error. Vercel runtime logs: 0 errors.
+
+### Still not verified live
+- Anything needing a second person: joining, co-planner edits, the budget
+  band at 3 answers, a member blocked from editing someone else's stop.
+  Covered by database tests only.
+- Production test data now includes a budget range on "Foundation check"
+  and two stops on "Decide live check (renamed)" (owner aiteam17-bot).
 
 ### Built
 - **009_itinerary.sql** (additive; no rows, tables or columns dropped):
@@ -70,19 +105,16 @@ comments.
 - No travel times: needs a routing provider (free OSRM demo is not for
   production; others are paid). Stop for a provider decision.
 - No arrival/departure-day checks: there are no flight/arrival records yet.
-- Not verified in a browser or against Supabase (008 and 009 not applied).
 
 ### Setup still needed (your dashboard)
-1. Apply `supabase/008_budget_privacy.sql`, then `supabase/009_itinerary.sql`,
-   in Supabase → SQL Editor (I can do this with your go-ahead).
-2. Merge `feat/shape-itinerary` to `main` to deploy.
-3. Authenticated API tests (`npm run test:api`) still need a separate test
+1. Done: 008 and 009 applied, deployed.
+2. Authenticated API tests (`npm run test:api`) still need a separate test
    project and a sign-in route that keeps "Confirm email" on.
-4. Email provider is still Enabled in production.
+3. Email provider is still Enabled in production.
 
 ### Next checkpoint
-Apply 008 + 009, deploy, and check PRD 01–06 live with two real accounts.
-Then PRD 07 commitment ladder.
+Check PRD 01–06 with a second real account (join, budget band at 3 answers,
+permissions), then PRD 07 commitment ladder.
 
 ## Earlier: fix for "Date.now() while prerendering" (2026-11-24)
 
@@ -345,6 +377,8 @@ Apply in Supabase → SQL Editor, in order, once each:
 | `supabase/005_grants.sql` | applied (checked) |
 | `supabase/006_decide.sql` | applied 2026-11-24 via SQL Editor ("Success. No rows returned") |
 | `supabase/007_foundation.sql` | applied 2026-11-24 via SQL Editor; recorded in `schema_versions` |
+| `supabase/008_budget_privacy.sql` | applied 2026-11-25 via SQL Editor; recorded in `schema_versions` |
+| `supabase/009_itinerary.sql` | applied 2026-11-25 via SQL Editor; recorded in `schema_versions` |
 
 006 is additive: new tables, functions, a trigger and two `trip_members`
 columns. It widens the `trip_members.role` check (adds `co_planner`); no data
