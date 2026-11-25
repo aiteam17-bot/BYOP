@@ -194,7 +194,9 @@ describe("computeNextStep", () => {
     const done = computeNextStep(input({ trip: decided }));
     expect(done.title).toBe("Decide is done");
     expect(done.detail).toBe("Goa, 12–15 Jan 2027. Next: shape the plan.");
-    expect(done.target).toBe("?tab=shape");
+    expect(done.target).toBe("itinerary");
+    const vote = computeNextStep(input({ trip: decided, myUnvotedStops: 2 }));
+    expect(vote.title).toBe("Vote on 2 itinerary stops");
   });
 });
 

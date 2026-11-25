@@ -38,6 +38,8 @@ export type TripContext = {
   cardsAnswered: number;
   /** Only what trip_budget_band() releases: a count, "no overlap" or a rounded band. */
   budget: BudgetBand;
+  /** Itinerary counts (PRD 05). */
+  stops: { total: number; agreed: number; myUnvoted: number };
 };
 
 /**
@@ -55,7 +57,7 @@ export async function loadTripContext(tripId: string): Promise<TripContext> {
   } = await supabase.auth.getUser();
   if (!user) redirect("/login");
 
-  const [tripRes, membersRes, pollsRes, optionsRes, votesRes, nudgesRes, progressRes, bandRes] =
+  const [tripRes, membersRes, pollsRes, optionsRes, votesRes, nudgesRes, progressRes, bandRes, stopsRes, stopVotesRes] =
     await Promise.all([
       supabase
         .from("trips")
@@ -87,10 +89,12 @@ export async function loadTripContext(tripId: string): Promise<TripContext> {
       supabase.rpc("preference_progress", { _trip_id: tripId }),
       // The only view of other people's budgets: suppressed below 3 answers.
       supabase.rpc("trip_budget_band", { _trip_id: tripId }),
+      supabase.from("itinerary_items").select("id").eq("trip_id", tripId),
+      supabase.from("stop_votes").select("item_id, user_id, vote").eq("trip_id", tripId),
     ]);
 
   // A failed read is an error (shown with a retry button), never an empty trip.
-  for (const res of [tripRes, membersRes, pollsRes, optionsRes, votesRes, nudgesRes, progressRes, bandRes]) {
+  for (const res of [tripRes, membersRes, pollsRes, optionsRes, votesRes, nudgesRes, progressRes, bandRes, stopsRes, stopVotesRes]) {
     if (res.error) throw new Error("Could not load this trip");
   }
   const trip = tripRes.data;
@@ -169,5 +173,16 @@ export async function loadTripContext(tripId: string): Promise<TripContext> {
     myBudgetSubmitted: progress.me_budget_submitted,
     cardsAnswered: progress.cards_submitted,
     budget: bandRes.data as BudgetBand,
+    stops: (() => {
+      const ids = (stopsRes.data ?? []).map((r) => r.id as string);
+      const memberIds = members.map((m) => m.userId);
+      const byStop: Record<string, Record<string, string>> = {};
+      for (const v of stopVotesRes.data ?? []) (byStop[v.item_id] ??= {})[v.user_id] = v.vote;
+      return {
+        total: ids.length,
+        agreed: ids.filter((id) => memberIds.every((m) => byStop[id]?.[m] === "for")).length,
+        myUnvoted: ids.filter((id) => !byStop[id]?.[user.id]).length,
+      };
+    })(),
   };
 }

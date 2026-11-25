@@ -43,7 +43,7 @@ afterAll(async () => {
 describe("version record", () => {
   it("records every migration, and nobody can read it through the API", async () => {
     const versions = await db.query<{ version: number }>(`select version from schema_versions order by version`);
-    expect(versions.rows.map((r) => r.version)).toEqual([1, 2, 3, 4, 5, 6, 7, 8]);
+    expect(versions.rows.map((r) => r.version)).toEqual([1, 2, 3, 4, 5, 6, 7, 8, 9]);
     await expect(rows(ALICE, `select * from schema_versions`)).rejects.toThrow(BLOCKED);
     await expect(rows(null, `select * from schema_versions`)).rejects.toThrow(BLOCKED);
   });
@@ -232,10 +232,10 @@ describe("trips and memberships", () => {
       rows(BOB, `update preferences set trip_id = $1 where trip_id = $2 and user_id = $3`, [otherTripId, tripId, BOB]),
     ).rejects.toThrow(/cannot be moved/);
 
-    await asUser(db, BOB, `insert into itinerary_items (trip_id, day_number, title) values ($1, 1, 'Beach')`, [tripId]);
+    await asUser(db, BOB, `select add_stop($1, 1, '10:00', 60, 'Beach')`, [tripId]);
     await expect(
       rows(BOB, `update itinerary_items set trip_id = $1 where trip_id = $2`, [otherTripId, tripId]),
-    ).rejects.toThrow(/cannot be moved/);
+    ).rejects.toThrow(/cannot be moved|permission denied/);
 
     await expect(
       rows(ALICE, `update trips set owner_id = $1 where id = $2`, [BOB, tripId]),

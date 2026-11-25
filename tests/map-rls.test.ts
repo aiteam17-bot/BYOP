@@ -32,8 +32,7 @@ describe("map locations", () => {
     await asUser(
       db,
       ALICE,
-      `insert into itinerary_items (trip_id, day_number, title, place_url, latitude, longitude)
-       values ($1, 1, 'Sunset', 'https://example.com', 15.6, 73.7)`,
+      `select add_stop($1, 1, '18:00', 60, 'Sunset', 'https://example.com', 15.6, 73.7)`,
       [tripId],
     );
 
@@ -66,10 +65,10 @@ describe("map locations", () => {
       asUser(
         db,
         ALICE,
-        `insert into itinerary_items (trip_id, day_number, title, longitude) values ($1, 1, 'Half', 74.1)`,
+        `select add_stop($1, 1, '10:00', 60, 'Half', null, null, 74.1)`,
         [tripId],
       ),
-    ).rejects.toThrow(/check constraint/);
+    ).rejects.toThrow(/latitude and longitude/);
   });
 
   it("rejects coordinates that are off the globe", async () => {

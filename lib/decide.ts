@@ -232,6 +232,8 @@ export type NextStepInput = {
   myBudgetSubmitted: boolean;
   budget: BudgetBand;
   hasPlanningBounds: boolean;
+  /** Stops in the itinerary I have not voted on (PRD 05). */
+  myUnvotedStops?: number;
   /** Nudges sent to me, by topic -> sender name. */
   nudges: Partial<Record<NudgeTopic, string>>;
 };
@@ -391,13 +393,22 @@ export function computeNextStep(input: NextStepInput): NextStep {
     };
   }
 
-  // 5. Decide is complete.
+  // 5. Decide is complete: shape the plan.
+  const unvoted = input.myUnvotedStops ?? 0;
+  if (unvoted > 0) {
+    return {
+      title: `Vote on ${unvoted} itinerary stop${unvoted === 1 ? "" : "s"}`,
+      detail: "A stop is agreed once everyone is for it.",
+      target: "itinerary",
+      cta: "Vote",
+    };
+  }
   const when = decidedText("dates", trip);
   const where = decidedText("destination", trip);
   return {
     title: "Decide is done",
     detail: `${where ?? ""}${where && when ? ", " : ""}${when ?? ""}. Next: shape the plan.`,
-    target: "?tab=shape",
+    target: "itinerary",
     cta: "Shape the plan",
   };
 }

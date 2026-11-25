@@ -44,6 +44,7 @@ function NextStepCard({ ctx }: { ctx: TripContext }) {
     myBudgetSubmitted: ctx.myBudgetSubmitted,
     budget: ctx.budget,
     hasPlanningBounds: ctx.trip.planningMin !== null,
+    myUnvotedStops: ctx.stops.myUnvoted,
     nudges: ctx.nudgesToMe,
   });
   return (
@@ -139,7 +140,7 @@ function DecideTab({ ctx }: { ctx: TripContext }) {
   );
 }
 
-async function ShapeTab({ tripId }: { tripId: string }) {
+async function ShapeTab({ tripId, ctx }: { tripId: string; ctx: TripContext }) {
   const supabase = await createClient();
   const [stays, items] = await Promise.all([
     supabase.from("stays").select("id, name, url, latitude, longitude").eq("trip_id", tripId),
@@ -158,7 +159,18 @@ async function ShapeTab({ tripId }: { tripId: string }) {
         <TripMap places={places} />
       </Card>
       <Card title="Itinerary">
-        <Muted>The day-by-day itinerary builder is not built yet. It is the next planning screen.</Muted>
+        <div className="flex flex-col gap-3">
+          <Muted>
+            {ctx.stops.total === 0
+              ? "No stops yet. Add places day by day; everyone votes on each one."
+              : `${ctx.stops.total} stop${ctx.stops.total === 1 ? "" : "s"}, ${ctx.stops.agreed} agreed by everyone. ${ctx.stops.myUnvoted > 0 ? `${ctx.stops.myUnvoted} waiting for your vote.` : "You've voted on all of them."}`}
+          </Muted>
+          <div>
+            <Link href={`/trips/${tripId}/itinerary`} className={smallPrimaryButton}>
+              Open itinerary
+            </Link>
+          </div>
+        </div>
       </Card>
     </>
   );
@@ -242,7 +254,7 @@ async function TripHome({
       {tab === "decide" && <DecideTab ctx={ctx} />}
       {tab === "shape" && (
         <Suspense fallback={<Muted>Loading map…</Muted>}>
-          <ShapeTab tripId={id} />
+          <ShapeTab tripId={id} ctx={ctx} />
         </Suspense>
       )}
       {tab === "book" && <BookTab tripId={id} />}

@@ -11,7 +11,80 @@ mock APIs, simulated AI or invented prices. Test fixtures exist only inside
 - Plan: [REAL_BUILD_PLAN.md](REAL_BUILD_PLAN.md) (screen map, provider
   dependencies, migration plan, seven-stage checklist)
 
-## Latest: fix for "Date.now() while prerendering" (2026-11-24)
+## Latest: Shape stage, PRD 05 itinerary + 06 map/comments (2026-11-25)
+
+Branch `feat/shape-itinerary` (built on `feat/budget-privacy`). Not merged,
+not deployed. **Migrations 008 and 009 are not applied to production**, so
+nothing from PRD 03, 05 or 06 is live, and none of it has been seen in a
+browser against a real database yet.
+
+### Built
+- **009_itinerary.sql** (additive; no rows, tables or columns dropped):
+  - Stops: day number + local start time in the trip time zone (date-only
+    days); `starts_at timestamptz` derived by trigger from trip start date +
+    day + time + timezone and recomputed when those change; duration,
+    indicative cost per person (minor units), notes, author, timestamps.
+  - `stop_votes` (for/against, one per person) and `stop_comments`.
+  - Direct writes to itinerary_items revoked. Functions: `add_stop`,
+    `update_stop`, `delete_stop`, `vote_stop`, `add_comment`,
+    `delete_comment`. Each checks membership and role, validates and runs in
+    one transaction. Add stop / add comment are retry-safe (client key).
+    Changing a stop's day, time, length, place or cost restarts its votes.
+  - Permissions: anyone on the trip adds stops, votes and comments; only
+    the author or the organiser/co-planners edit, move or delete a stop or
+    delete a comment.
+- **Itinerary screen** `/trips/[id]/itinerary?day=N` in PRD order: day tabs
+  (dated when the trip has dates), stops by time with status (proposed /
+  agreed by everyone / needs a decision) and who voted, For / Against /
+  Withdraw, comments, edit-or-move and delete (inline confirm), add-a-stop
+  form, timing-clash warnings in words (overlaps, past midnight), and the
+  day's map (stays + that day's stops).
+- **Honest limits shown on screen:** distances are "straight line, not a
+  route or travel time"; costs say "entered by a member".
+- Shape tab summary (stops / agreed / waiting for your vote); Next step asks
+  you to vote on unvoted stops once Decide is done.
+
+### Verified (exact commands, real results)
+```
+$ npx tsc --noEmit        -> exit 0
+$ npm run lint            -> exit 0
+$ npm test                -> Test Files 15 passed (15), Tests 204 passed (204)
+                             (new: tests/itinerary-rls.test.ts, tests/itinerary.test.ts)
+$ npm run build           -> Compiled successfully; /trips/[id]/itinerary built (partial prerender)
+$ npm run scan:secrets    -> 102 tracked files, 15 commits: no findings; PASS
+```
+Database tests (real SQL in PGlite) cover: instants from date + time +
+time zone (6 Feb 10:00 IST = 04:30 UTC) and recomputation after date or
+time-zone changes; validation (days beyond the trip, missing time,
+duration, blank names, `javascript:` links, half locations, negative cost);
+retry-safe adds; direct writes refused; outsiders see and add nothing;
+non-authors cannot edit or delete; planners can; moving restarts votes;
+one vote per person, replace and withdraw; comments idempotent, outsider
+blocked, author/planner delete; leaving the trip removes your votes and
+comments.
+
+### Not done / known limits
+- **Live "who is editing" marker (PRD 06) is not built.** It needs Supabase
+  Realtime presence on private channels with RLS on `realtime.messages`;
+  left for a later checkpoint rather than shipped untested.
+- No travel times: needs a routing provider (free OSRM demo is not for
+  production; others are paid). Stop for a provider decision.
+- No arrival/departure-day checks: there are no flight/arrival records yet.
+- Not verified in a browser or against Supabase (008 and 009 not applied).
+
+### Setup still needed (your dashboard)
+1. Apply `supabase/008_budget_privacy.sql`, then `supabase/009_itinerary.sql`,
+   in Supabase → SQL Editor (I can do this with your go-ahead).
+2. Merge `feat/shape-itinerary` to `main` to deploy.
+3. Authenticated API tests (`npm run test:api`) still need a separate test
+   project and a sign-in route that keeps "Confirm email" on.
+4. Email provider is still Enabled in production.
+
+### Next checkpoint
+Apply 008 + 009, deploy, and check PRD 01–06 live with two real accounts.
+Then PRD 07 commitment ladder.
+
+## Earlier: fix for "Date.now() while prerendering" (2026-11-24)
 
 Branch `feat/budget-privacy` (not merged, not deployed; migration 008 is not
 applied to production yet).
