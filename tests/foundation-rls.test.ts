@@ -43,7 +43,7 @@ afterAll(async () => {
 describe("version record", () => {
   it("records every migration, and nobody can read it through the API", async () => {
     const versions = await db.query<{ version: number }>(`select version from schema_versions order by version`);
-    expect(versions.rows.map((r) => r.version)).toEqual([1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 12, 13]);
+    expect(versions.rows.map((r) => r.version)).toEqual([1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 12, 13, 14]);
     await expect(rows(ALICE, `select * from schema_versions`)).rejects.toThrow(BLOCKED);
     await expect(rows(null, `select * from schema_versions`)).rejects.toThrow(BLOCKED);
   });

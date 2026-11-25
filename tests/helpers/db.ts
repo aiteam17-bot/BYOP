@@ -22,6 +22,7 @@ export const MIGRATIONS = [
   "010_places_quotes.sql",
   "012_stale_errcode.sql", // 011 is Supabase Realtime only (not in PGlite)
   "013_plans_ai_concierge.sql",
+  "014_plans_column_grants.sql",
 ];
 
 export function sqlFile(name: string): string {

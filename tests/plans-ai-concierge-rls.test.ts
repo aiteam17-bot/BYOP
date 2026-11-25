@@ -99,6 +99,19 @@ describe("plan shapes", () => {
     expect((await errOf(rows(BOB, `select choose_plan_shape($1)`, [ids[0].id]))).message).toMatch(BLOCKED);
   });
 
+  // Regression: trips has column-level grants, and 013's new columns were
+  // not granted, so the Plans page's reads failed in production.
+  it("members can read every trips column the Plans page uses; outsiders see no row", async () => {
+    const r = await rows<{ plan_version: number; ai_ideas_opt_in_at: string | null }>(
+      BOB,
+      `select plan_version, ai_ideas_opt_in_at, ai_ideas_opt_in_by from trips where id = $1`,
+      [trip],
+    );
+    expect(r.length).toBe(1);
+    expect(r[0].plan_version).toBeGreaterThanOrEqual(1);
+    expect(await rows(CAROL, `select plan_version from trips where id = $1`, [trip])).toEqual([]);
+  });
+
   it("nobody writes the tables directly", async () => {
     expect((await errOf(rows(ALICE, `insert into plan_shapes (trip_id, generation, tier) values ($1, 99, 'tight')`, [trip]))).message).toMatch(BLOCKED);
     expect((await errOf(rows(ALICE, `update trips set plan_version = 1 where id = $1`, [trip]))).message).toMatch(BLOCKED);
