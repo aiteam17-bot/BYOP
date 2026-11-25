@@ -88,19 +88,19 @@ describe("editing, moving and deleting", () => {
   it("a member cannot edit or delete someone else's stop; planners can", async () => {
     aliceStop = await addStop(ALICE, 1, "18:00", "Sunset");
     await expect(
-      rows(BOB, `select update_stop($1, 1, '19:00', 60, 'Mine now')`, [aliceStop]),
+      rows(BOB, `select update_stop($1, 1, '19:00', 60, 'Mine now', null, null, null, null, null, (select version from itinerary_items where id = $1))`, [aliceStop]),
     ).rejects.toThrow(/Only whoever added this stop/);
-    await expect(rows(BOB, `select delete_stop($1)`, [aliceStop])).rejects.toThrow(/Only whoever added this stop/);
-    await asUser(db, ERIN, `select update_stop($1, 1, '18:30', 60, 'Sunset at Chapora')`, [aliceStop]);
+    await expect(rows(BOB, `select delete_stop_checked($1, (select version from itinerary_items where id = $1))`, [aliceStop])).rejects.toThrow(/Only whoever added this stop/);
+    await asUser(db, ERIN, `select update_stop($1, 1, '18:30', 60, 'Sunset at Chapora', null, null, null, null, null, (select version from itinerary_items where id = $1))`, [aliceStop]);
     const t = await rows<{ title: string }>(BOB, `select title from itinerary_items where id = $1`, [aliceStop]);
     expect(t[0].title).toBe("Sunset at Chapora");
   });
 
   it("moving a stop restarts its votes; editing only notes keeps them", async () => {
     await asUser(db, BOB, `select vote_stop($1, 'for')`, [aliceStop]);
-    await asUser(db, ALICE, `select update_stop($1, 1, '18:30', 60, 'Sunset at Chapora', null, null, null, null, 'Bring water')`, [aliceStop]);
+    await asUser(db, ALICE, `select update_stop($1, 1, '18:30', 60, 'Sunset at Chapora', null, null, null, null, 'Bring water', (select version from itinerary_items where id = $1))`, [aliceStop]);
     expect(await rows(ALICE, `select user_id from stop_votes where item_id = $1`, [aliceStop])).toHaveLength(1);
-    await asUser(db, ALICE, `select update_stop($1, 2, '18:30', 60, 'Sunset at Chapora')`, [aliceStop]);
+    await asUser(db, ALICE, `select update_stop($1, 2, '18:30', 60, 'Sunset at Chapora', null, null, null, null, null, (select version from itinerary_items where id = $1))`, [aliceStop]);
     expect(await rows(ALICE, `select user_id from stop_votes where item_id = $1`, [aliceStop])).toEqual([]);
   });
 
@@ -116,7 +116,7 @@ describe("editing, moving and deleting", () => {
 
   it("the author can delete their own stop", async () => {
     const mine = await addStop(BOB, 1, "08:00", "Run");
-    await asUser(db, BOB, `select delete_stop($1)`, [mine]);
+    await asUser(db, BOB, `select delete_stop_checked($1, (select version from itinerary_items where id = $1))`, [mine]);
     expect(await rows(BOB, `select id from itinerary_items where id = $1`, [mine])).toEqual([]);
   });
 });

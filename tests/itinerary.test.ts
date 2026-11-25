@@ -77,7 +77,7 @@ describe("parseStopForm", () => {
   it("returns clean values with minor-unit cost", () => {
     expect(parseStopForm(form({ ...base, coordinates: "15.4920, 73.7730", place_url: "https://maps.example/x" }), 4)).toEqual({
       ok: true,
-      data: { day: 2, time: "10:30", duration: 90, title: "Fort", placeUrl: "https://maps.example/x", lat: 15.492, lng: 73.773, costMinor: 45000, notes: null },
+      data: { day: 2, time: "10:30", duration: 90, title: "Fort", placeUrl: "https://maps.example/x", lat: 15.492, lng: 73.773, costMinor: 45000, notes: null, travelMinutes: null, placeId: null },
     });
   });
   it("rejects bad days, times, durations, links and coordinates", () => {
@@ -86,5 +86,8 @@ describe("parseStopForm", () => {
     expect(parseStopForm(form({ ...base, duration: "2" }), 4).ok).toBe(false);
     expect(parseStopForm(form({ ...base, place_url: "javascript:alert(1)" }), 4).ok).toBe(false);
     expect(parseStopForm(form({ ...base, coordinates: "999, 1" }), 4).ok).toBe(false);
+    expect(parseStopForm(form({ ...base, travel_minutes: "-5" }), 4).ok).toBe(false);
+    const withTravel = parseStopForm(form({ ...base, travel_minutes: "25" }), 4);
+    expect(withTravel.ok && withTravel.data.travelMinutes).toBe(25);
   });
 });

@@ -143,7 +143,7 @@ function DecideTab({ ctx }: { ctx: TripContext }) {
 async function ShapeTab({ tripId, ctx }: { tripId: string; ctx: TripContext }) {
   const supabase = await createClient();
   const [stays, items] = await Promise.all([
-    supabase.from("stays").select("id, name, url, latitude, longitude").eq("trip_id", tripId),
+    supabase.from("stay_quotes").select("id, name, url:source_url, latitude, longitude").eq("trip_id", tripId),
     supabase
       .from("itinerary_items")
       .select("id, title, place_url, day_number, time, latitude, longitude")
@@ -165,9 +165,12 @@ async function ShapeTab({ tripId, ctx }: { tripId: string; ctx: TripContext }) {
               ? "No stops yet. Add places day by day; everyone votes on each one."
               : `${ctx.stops.total} stop${ctx.stops.total === 1 ? "" : "s"}, ${ctx.stops.agreed} agreed by everyone. ${ctx.stops.myUnvoted > 0 ? `${ctx.stops.myUnvoted} waiting for your vote.` : "You've voted on all of them."}`}
           </Muted>
-          <div>
+          <div className="flex flex-wrap gap-3">
             <Link href={`/trips/${tripId}/itinerary`} className={smallPrimaryButton}>
               Open itinerary
+            </Link>
+            <Link href={`/trips/${tripId}/places`} className={smallPrimaryButton}>
+              Saved places
             </Link>
           </div>
         </div>
@@ -180,10 +183,10 @@ function BookTab({ tripId }: { tripId: string }) {
   return (
     <Card title="Stays">
       <div className="flex flex-col gap-3">
-        <Muted>Paste in places to stay and compare the true cost per person.</Muted>
+        <Muted>Add real stay quotes and compare them per person. Nothing here books anything.</Muted>
         <div>
           <Link href={`/trips/${tripId}/stays`} className={smallPrimaryButton}>
-            Compare stays
+            Compare stay quotes
           </Link>
         </div>
       </div>

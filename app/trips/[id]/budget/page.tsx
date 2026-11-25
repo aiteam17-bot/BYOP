@@ -15,7 +15,16 @@ import { currencySymbol, formatMoney } from "@/lib/money";
 import { createClient } from "@/lib/supabase/server";
 import { loadTripContext, type TripContext } from "@/lib/trip-data";
 import { paiseToRupeesString } from "@/lib/validation";
-import { clearBudget, clearPlanningBounds, saveBudget, savePlanningBounds } from "./actions";
+import { ClientKey } from "@/components/client-key";
+import {
+  clearBudget,
+  clearPlanningBounds,
+  createCategory,
+  deleteCategory,
+  saveBudget,
+  savePlanningBounds,
+  updateCategory,
+} from "./actions";
 
 export const metadata = { title: "Budget · Group Trip Planner" };
 
@@ -191,6 +200,153 @@ function PlanningBounds({ ctx }: { ctx: TripContext }) {
   );
 }
 
+type Category = {
+  id: string;
+  kind: string;
+  label: string;
+  planned_per_person_minor: number | string | null;
+  notes: string | null;
+  version: number;
+};
+
+const KIND_LABELS: Record<string, string> = {
+  flights: "Flights",
+  stay: "Stay",
+  local_transport: "Local transport",
+  food: "Food",
+  activities: "Activities",
+  shopping: "Shopping",
+  other: "Other",
+};
+
+function CategoryFields({ ctx, c }: { ctx: TripContext; c?: Category }) {
+  return (
+    <div className="grid grid-cols-3 gap-3 max-md:grid-cols-1">
+      <label className={labelClass}>
+        Category
+        <select name="kind" defaultValue={c?.kind ?? "flights"} className={inputClass}>
+          {Object.entries(KIND_LABELS).map(([k, v]) => (
+            <option key={k} value={k}>
+              {v}
+            </option>
+          ))}
+        </select>
+      </label>
+      <label className={labelClass}>
+        Name
+        <input name="label" required maxLength={60} defaultValue={c?.label} className={inputClass} />
+      </label>
+      <label className={labelClass}>
+        Planned per person ({currencySymbol(ctx.trip.currency)})
+        <input
+          name="planned"
+          inputMode="decimal"
+          placeholder="Not set"
+          defaultValue={paiseToRupeesString(c?.planned_per_person_minor === undefined || c?.planned_per_person_minor === null ? null : Number(c.planned_per_person_minor))}
+          className={inputClass}
+        />
+      </label>
+      <label className={`${labelClass} col-span-3 max-md:col-span-1`}>
+        Notes (optional)
+        <input name="notes" maxLength={1000} defaultValue={c?.notes ?? ""} className={inputClass} />
+      </label>
+    </div>
+  );
+}
+
+async function Categories({ ctx }: { ctx: TripContext }) {
+  const supabase = await createClient();
+  const { data, error } = await supabase
+    .from("budget_categories")
+    .select("id, kind, label, planned_per_person_minor, notes, version")
+    .eq("trip_id", ctx.trip.id)
+    .order("created_at");
+  if (error) throw new Error("Could not load budget categories");
+  const cats = (data ?? []) as Category[];
+  const planner = canPlan(ctx.me.role);
+  const planned = cats.reduce((sum, c) => sum + (c.planned_per_person_minor === null ? 0 : Number(c.planned_per_person_minor)), 0);
+  const unset = cats.filter((c) => c.planned_per_person_minor === null).length;
+  const b = ctx.budget;
+  const low = b.status === "band" ? b.low_minor : ctx.trip.planningMin;
+  const high = b.status === "band" ? b.high_minor : ctx.trip.planningMax;
+  const against = b.status === "band" ? "the comfort zone" : "the agreed planning bounds";
+  return (
+    <Card title="Planned costs by category">
+      <div className="flex flex-col gap-4">
+        <Muted>
+          Planned cost per person for the whole trip, by category. These are the group&apos;s plan, not anyone&apos;s private range.
+        </Muted>
+        {cats.length === 0 ? (
+          <p className="text-sm text-zinc-500">No categories yet.</p>
+        ) : (
+          <ul className="flex flex-col divide-y divide-zinc-200 dark:divide-zinc-800">
+            {cats.map((c) => (
+              <li key={c.id} className="flex flex-col gap-2 py-3">
+                <div className="flex flex-wrap items-baseline justify-between gap-2">
+                  <span className="font-medium text-zinc-950 dark:text-zinc-50">
+                    {c.label} <span className="text-sm font-normal text-zinc-500">({KIND_LABELS[c.kind]})</span>
+                  </span>
+                  <span className="tabular-nums">
+                    {c.planned_per_person_minor === null ? "Not set" : formatMoney(Number(c.planned_per_person_minor), ctx.trip.currency)}
+                  </span>
+                </div>
+                {c.notes && <p className="text-sm text-zinc-600 dark:text-zinc-400">{c.notes}</p>}
+                {planner && (
+                  <details>
+                    <summary className="cursor-pointer text-sm underline">Edit</summary>
+                    <ActionForm action={updateCategory.bind(null, ctx.trip.id, c.id)} className="mt-2 flex flex-col gap-3" ariaLabel={`Edit ${c.label}`}>
+                      <input type="hidden" name="expected_version" value={c.version} />
+                      <CategoryFields ctx={ctx} c={c} />
+                      <div className="flex flex-wrap gap-2">
+                        <SubmitButton className={smallPrimaryButton} pendingText="Saving…">
+                          Save
+                        </SubmitButton>
+                      </div>
+                    </ActionForm>
+                    <ActionForm action={deleteCategory.bind(null, ctx.trip.id, c.id, c.version)} className="mt-2">
+                      <SubmitButton className={smallButton} pendingText="Deleting…">
+                        Delete category
+                      </SubmitButton>
+                    </ActionForm>
+                  </details>
+                )}
+              </li>
+            ))}
+          </ul>
+        )}
+        {cats.length > 0 && (
+          <p className="text-zinc-950 dark:text-zinc-50">
+            Planned total: <strong>{formatMoney(planned, ctx.trip.currency)}</strong> per person
+            {unset > 0 && ` (${unset} categor${unset === 1 ? "y" : "ies"} not set)`}
+            {low !== null && high !== null && (
+              <span className="block text-sm text-zinc-600 dark:text-zinc-400">
+                {planned < low ? "Below" : planned > high ? "Above" : "Inside"} {against} ({formatMoney(low, ctx.trip.currency)} –{" "}
+                {formatMoney(high, ctx.trip.currency)}).
+              </span>
+            )}
+          </p>
+        )}
+        {planner ? (
+          <details>
+            <summary className="cursor-pointer text-sm underline">Add a category</summary>
+            <ActionForm action={createCategory.bind(null, ctx.trip.id)} className="mt-2 flex flex-col gap-3" ariaLabel="Add a budget category">
+              <ClientKey />
+              <CategoryFields ctx={ctx} />
+              <div>
+                <SubmitButton className={smallPrimaryButton} pendingText="Adding…">
+                  Add category
+                </SubmitButton>
+              </div>
+            </ActionForm>
+          </details>
+        ) : (
+          <p className="text-sm text-zinc-500">The organiser or a co-planner sets these.</p>
+        )}
+      </div>
+    </Card>
+  );
+}
+
 function HowPrivate() {
   return (
     <details className="rounded-xl border border-zinc-200 bg-white p-6 text-sm text-zinc-700 dark:border-zinc-800 dark:bg-zinc-950 dark:text-zinc-300 max-md:p-4">
@@ -233,6 +389,7 @@ async function Budget({ params }: { params: Promise<{ id: string }> }) {
       <MyRange ctx={ctx} />
       <GroupZone ctx={ctx} />
       <PlanningBounds ctx={ctx} />
+      <Categories ctx={ctx} />
       <HowPrivate />
     </>
   );

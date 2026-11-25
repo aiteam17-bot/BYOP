@@ -16,6 +16,10 @@ export type Stop = {
   costMinor: number | null;
   notes: string | null;
   createdBy: string | null;
+  /** Member-entered travel time from the previous stop; null = unknown. */
+  travelMinutes?: number | null;
+  placeId?: string | null;
+  version?: number;
 };
 
 export type StopStatus = "agreed" | "contested" | "proposed";
@@ -116,6 +120,8 @@ export type StopInput = {
   lng: number | null;
   costMinor: number | null;
   notes: string | null;
+  travelMinutes: number | null;
+  placeId: string | null;
 };
 
 function field(form: FormData, key: string): string {
@@ -151,8 +157,20 @@ export function parseStopForm(form: FormData, maxDay: number): { ok: true; data:
   if (!cost.ok) return { ok: false, error: cost.error };
   const notes = field(form, "notes");
   if (notes.length > 1000) return { ok: false, error: "Keep notes under 1000 characters" };
+  const travelRaw = field(form, "travel_minutes");
+  let travelMinutes: number | null = null;
+  if (travelRaw !== "") {
+    const t = Number(travelRaw);
+    if (!Number.isInteger(t) || t < 0 || t > 1440) return { ok: false, error: "Travel time is 0 to 1440 minutes, or leave it empty" };
+    travelMinutes = t;
+  }
+  const placeRaw = field(form, "place_id");
+  const placeId = /^[0-9a-f-]{36}$/i.test(placeRaw) ? placeRaw : null;
   return {
     ok: true,
-    data: { day, time, duration, title, placeUrl, lat, lng, costMinor: cost.value, notes: notes === "" ? null : notes },
+    data: {
+      day, time, duration, title, placeUrl, lat, lng, costMinor: cost.value,
+      notes: notes === "" ? null : notes, travelMinutes, placeId,
+    },
   };
 }

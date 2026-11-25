@@ -4,7 +4,7 @@ import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
 import type { ActionState } from "@/components/action-form";
 import { createClient } from "@/lib/supabase/server";
-import { isUuid, parseBudgetRange } from "@/lib/validation";
+import { isUuid, parseBudgetRange, parseRupees } from "@/lib/validation";
 
 // Your range is written only to YOUR preferences row (RLS: owner only). Other
 // people learn about it only through trip_budget_band(), which releases a
@@ -20,7 +20,7 @@ async function signedIn() {
 }
 
 function message(error: { code?: string; message: string }): string {
-  if (error.code === "22023" || error.code === "42501") return error.message;
+  if (error.code === "22023" || error.code === "42501" || error.code === "40001" || error.code === "P0002") return error.message;
   if (error.code === "23514") return "Check the amounts: the minimum must be at most the maximum.";
   return "That didn't work. Please try again.";
 }
@@ -86,4 +86,76 @@ export async function clearPlanningBounds(tripId: string, prev: ActionState): Pr
   if (error) return { error: message(error) };
   revalidatePath(`/trips/${tripId}`, "layout");
   return { done: (prev.done ?? 0) + 1, notice: "Planning bounds cleared." };
+}
+
+// Budget categories: planned cost per person by category (organiser and
+// co-planners; checked again in the database, with versions).
+const CATEGORY_KINDS = ["flights", "stay", "local_transport", "food", "activities", "shopping", "other"] as const;
+
+function categoryFields(form: FormData): { kind: string; label: string; planned: number | null; notes: string | null } | { error: string } {
+  const kind = String(form.get("kind") ?? "");
+  if (!(CATEGORY_KINDS as readonly string[]).includes(kind)) return { error: "Choose a category" };
+  const label = String(form.get("label") ?? "").trim();
+  if (label.length < 1 || label.length > 60) return { error: "Category names are 1 to 60 characters" };
+  const raw = String(form.get("planned") ?? "").trim();
+  let planned: number | null = null;
+  if (raw !== "") {
+    const p = parseRupees(raw);
+    if (!p.ok) return { error: p.error };
+    planned = p.value;
+  }
+  const notes = String(form.get("notes") ?? "").trim();
+  if (notes.length > 1000) return { error: "Keep notes under 1000 characters" };
+  return { kind, label, planned, notes: notes || null };
+}
+
+export async function createCategory(tripId: string, prev: ActionState, form: FormData): Promise<ActionState> {
+  if (!isUuid(tripId)) return { error: "That trip could not be found." };
+  const f = categoryFields(form);
+  if ("error" in f) return f;
+  const k = String(form.get("client_key") ?? "");
+  const { supabase } = await signedIn();
+  const { error } = await supabase.rpc("create_budget_category", {
+    _trip_id: tripId,
+    _kind: f.kind,
+    _label: f.label,
+    _planned_per_person_minor: f.planned,
+    _notes: f.notes,
+    _client_key: isUuid(k) ? k : null,
+  });
+  if (error) return { error: message(error) };
+  revalidatePath(`/trips/${tripId}`, "layout");
+  return { done: (prev.done ?? 0) + 1, notice: "Category added." };
+}
+
+export async function updateCategory(tripId: string, id: string, prev: ActionState, form: FormData): Promise<ActionState> {
+  if (!isUuid(tripId) || !isUuid(id)) return { error: "That category could not be found." };
+  const f = categoryFields(form);
+  if ("error" in f) return f;
+  const v = Number(form.get("expected_version"));
+  if (!Number.isInteger(v) || v < 1) return { error: "Reload the page and try again." };
+  const { supabase } = await signedIn();
+  const { error } = await supabase.rpc("update_budget_category", {
+    _id: id,
+    _kind: f.kind,
+    _label: f.label,
+    _planned_per_person_minor: f.planned,
+    _notes: f.notes,
+    _expected_version: v,
+  });
+  if (error) {
+    if (error.code === "40001") revalidatePath(`/trips/${tripId}`, "layout");
+    return { error: message(error) };
+  }
+  revalidatePath(`/trips/${tripId}`, "layout");
+  return { done: (prev.done ?? 0) + 1, notice: "Saved." };
+}
+
+export async function deleteCategory(tripId: string, id: string, expectedVersion: number, prev: ActionState): Promise<ActionState> {
+  if (!isUuid(tripId) || !isUuid(id)) return { error: "That category could not be found." };
+  const { supabase } = await signedIn();
+  const { error } = await supabase.rpc("delete_budget_category", { _id: id, _expected_version: expectedVersion });
+  if (error) return { error: message(error) };
+  revalidatePath(`/trips/${tripId}`, "layout");
+  return { done: (prev.done ?? 0) + 1 };
 }

@@ -2,7 +2,8 @@ import { Suspense } from "react";
 import Link from "next/link";
 import { ActionForm, SubmitButton } from "@/components/action-form";
 import { ClientKey } from "@/components/client-key";
-import { TripMap } from "@/components/trip-map";
+import { EditDetails, EditingMarker, LiveStatus, LiveTrip } from "@/components/live-trip";
+import { TripMap, type Connector } from "@/components/trip-map";
 import {
   Card,
   Muted,
@@ -29,13 +30,25 @@ import { currencySymbol, formatMoney } from "@/lib/money";
 import { createClient } from "@/lib/supabase/server";
 import { loadTripContext, type TripContext } from "@/lib/trip-data";
 import { safeHttpUrl } from "@/lib/url";
-import { paiseToRupeesString } from "@/lib/validation";
-import { addComment, addStop, deleteComment, deleteStop, updateStop, voteStop } from "./actions";
+import { isUuid, paiseToRupeesString } from "@/lib/validation";
+import {
+  addComment,
+  addStop,
+  createVariant,
+  deleteComment,
+  deleteStop,
+  deleteVariant,
+  updateStop,
+  updateVariant,
+  voteStop,
+} from "./actions";
 
 export const metadata = { title: "Itinerary · Group Trip Planner" };
 
 type Vote = "for" | "against";
 type Comment = { id: string; item_id: string; user_id: string; body: string; created_at: string };
+type Variant = { id: string; name: string; description: string | null; version: number };
+type PlaceOption = { id: string; name: string };
 
 const DURATIONS = [15, 30, 45, 60, 90, 120, 180, 240, 360, 480];
 
@@ -55,11 +68,13 @@ function StopFields({
   maxDay,
   stop,
   day,
+  places,
 }: {
   ctx: TripContext;
   maxDay: number;
   stop?: Stop;
   day: number;
+  places: PlaceOption[];
 }) {
   const durations = stop && !DURATIONS.includes(stop.duration) ? [stop.duration, ...DURATIONS] : DURATIONS;
   return (
@@ -93,6 +108,29 @@ function StopFields({
         </select>
       </label>
       <label className={labelClass}>
+        Travel from the previous stop, minutes (optional, your estimate)
+        <input
+          name="travel_minutes"
+          inputMode="numeric"
+          placeholder="Unknown"
+          defaultValue={stop?.travelMinutes ?? ""}
+          className={inputClass}
+        />
+      </label>
+      {places.length > 0 && (
+        <label className={labelClass}>
+          Saved place (optional)
+          <select name="place_id" defaultValue={stop?.placeId ?? ""} className={inputClass}>
+            <option value="">None</option>
+            {places.map((p) => (
+              <option key={p.id} value={p.id}>
+                {p.name}
+              </option>
+            ))}
+          </select>
+        </label>
+      )}
+      <label className={labelClass}>
         Indicative cost per person ({currencySymbol(ctx.trip.currency)}, optional)
         <input name="cost" inputMode="decimal" placeholder="Amount" defaultValue={paiseToRupeesString(stop?.costMinor ?? null)} className={inputClass} />
       </label>
@@ -125,6 +163,9 @@ function StopCard({
   distanceKm,
   warning,
   maxDay,
+  variantId,
+  places,
+  placeName,
 }: {
   ctx: TripContext;
   stop: Stop;
@@ -133,6 +174,9 @@ function StopCard({
   distanceKm: number | undefined;
   warning: string | undefined;
   maxDay: number;
+  variantId: string | null;
+  places: PlaceOption[];
+  placeName: string | null;
 }) {
   const memberIds = ctx.members.map((m) => m.userId);
   const status = stopStatus(votes, memberIds);
@@ -156,14 +200,22 @@ function StopCard({
         </h3>
         <span className={`rounded-full px-2.5 py-0.5 text-xs font-medium ${STATUS_STYLE[status]}`}>{STATUS_LABEL[status]}</span>
       </div>
+      <EditingMarker itemId={stop.id} />
       {warning && (
         <p role="note" className="text-sm font-medium text-amber-800 dark:text-amber-300">
           {warning}
         </p>
       )}
       <ul className="flex flex-col gap-1 text-sm text-zinc-600 dark:text-zinc-400">
+        <li>
+          Travel from the previous stop:{" "}
+          {stop.travelMinutes === null || stop.travelMinutes === undefined
+            ? "unknown"
+            : `${stop.travelMinutes} min (a member's estimate)`}
+        </li>
+        {distanceKm !== undefined && <li>{distanceKm.toFixed(1)} km in a straight line from the previous stop (not a route)</li>}
+        {placeName && <li>Saved place: {placeName}</li>}
         {stop.costMinor !== null && <li>About {formatMoney(stop.costMinor, ctx.trip.currency)} per person (entered by a member)</li>}
-        {distanceKm !== undefined && <li>{distanceKm.toFixed(1)} km in a straight line from the previous stop (not a route or travel time)</li>}
         {link && (
           <li>
             <a href={link} target="_blank" rel="noopener noreferrer nofollow" className="text-blue-700 underline dark:text-blue-400">
@@ -231,25 +283,30 @@ function StopCard({
 
       {canEdit && (
         <div className="flex flex-wrap gap-3 border-t border-zinc-200 pt-3 dark:border-zinc-800">
-          <details className="w-full">
-            <summary className="cursor-pointer text-sm text-zinc-700 underline dark:text-zinc-300">Edit or move</summary>
-            <div className="mt-3">
-              <ActionForm action={updateStop.bind(null, ctx.trip.id, stop.id, maxDay)} className="flex flex-col gap-4" ariaLabel={`Edit ${stop.title}`}>
-                <StopFields ctx={ctx} maxDay={maxDay} stop={stop} day={stop.day} />
-                <p className="text-sm text-zinc-500">Changing the day, time, length, place or cost restarts everyone&apos;s votes.</p>
-                <div>
-                  <SubmitButton className={smallPrimaryButton} pendingText="Saving…">
-                    Save changes
-                  </SubmitButton>
-                </div>
-              </ActionForm>
-            </div>
-          </details>
+          <EditDetails itemId={stop.id} summary="Edit or move">
+            <ActionForm
+              action={updateStop.bind(null, ctx.trip.id, stop.id, maxDay, variantId)}
+              className="flex flex-col gap-4"
+              ariaLabel={`Edit ${stop.title}`}
+            >
+              <input type="hidden" name="expected_version" value={stop.version ?? 1} />
+              <StopFields ctx={ctx} maxDay={maxDay} stop={stop} day={stop.day} places={places} />
+              <p className="text-sm text-zinc-500">
+                If someone else saves a change first, yours is not applied: you&apos;ll see their version and can try again.
+                Changing the day, time, length, place or cost restarts everyone&apos;s votes.
+              </p>
+              <div>
+                <SubmitButton className={smallPrimaryButton} pendingText="Saving…">
+                  Save changes
+                </SubmitButton>
+              </div>
+            </ActionForm>
+          </EditDetails>
           <details>
             <summary className="cursor-pointer text-sm text-red-700 underline dark:text-red-400">Delete this stop</summary>
             <div className="mt-2 flex items-center gap-2">
               <span className="text-sm text-zinc-600 dark:text-zinc-400">Its votes and comments go too.</span>
-              <ActionForm action={deleteStop.bind(null, ctx.trip.id, stop.id)}>
+              <ActionForm action={deleteStop.bind(null, ctx.trip.id, stop.id, stop.version ?? 1)}>
                 <SubmitButton className={smallButton} pendingText="Deleting…">
                   Yes, delete
                 </SubmitButton>
@@ -259,6 +316,84 @@ function StopCard({
         </div>
       )}
     </li>
+  );
+}
+
+function Variants({ ctx, variants, current }: { ctx: TripContext; variants: Variant[]; current: Variant | null }) {
+  const planner = canPlan(ctx.me.role);
+  const base = `/trips/${ctx.trip.id}/itinerary`;
+  return (
+    <Card title="Plan">
+      <div className="flex flex-col gap-3">
+        <nav aria-label="Plan variants">
+          <ul className="flex flex-wrap gap-2">
+            {[{ id: null, name: "Main plan" }, ...variants].map((v) => {
+              const active = (current?.id ?? null) === v.id;
+              return (
+                <li key={v.id ?? "main"}>
+                  <Link
+                    href={v.id ? `${base}?variant=${v.id}` : base}
+                    aria-current={active ? "page" : undefined}
+                    className={active ? smallPrimaryButton : smallButton}
+                  >
+                    {v.name}
+                  </Link>
+                </li>
+              );
+            })}
+          </ul>
+        </nav>
+        {current?.description && <Muted>{current.description}</Muted>}
+        <p className="text-sm text-zinc-500">
+          Variants are alternative plans (for example a tighter or a splurge version) built from real stops. Nothing here is
+          generated.
+        </p>
+        {planner && (
+          <details>
+            <summary className="cursor-pointer text-sm underline">Manage variants</summary>
+            <div className="mt-3 flex flex-col gap-4">
+              <ActionForm action={createVariant.bind(null, ctx.trip.id)} className="grid grid-cols-[1fr_auto] items-end gap-3 max-md:grid-cols-1" ariaLabel="New plan variant">
+                <ClientKey />
+                <label className={labelClass}>
+                  New variant
+                  <input name="name" required maxLength={60} placeholder="e.g. Splurge" className={inputClass} />
+                </label>
+                <SubmitButton className={smallPrimaryButton} pendingText="Creating…">
+                  Create
+                </SubmitButton>
+                <label className={`${labelClass} col-span-2 max-md:col-span-1`}>
+                  Description (optional)
+                  <input name="description" maxLength={1000} className={inputClass} />
+                </label>
+              </ActionForm>
+              {current && (
+                <>
+                  <ActionForm action={updateVariant.bind(null, ctx.trip.id, current.id)} className="grid grid-cols-[1fr_auto] items-end gap-3 max-md:grid-cols-1" ariaLabel="Rename this variant">
+                    <input type="hidden" name="expected_version" value={current.version} />
+                    <label className={labelClass}>
+                      Rename &quot;{current.name}&quot;
+                      <input name="name" required maxLength={60} defaultValue={current.name} className={inputClass} />
+                    </label>
+                    <SubmitButton className={smallButton} pendingText="Saving…">
+                      Save
+                    </SubmitButton>
+                    <label className={`${labelClass} col-span-2 max-md:col-span-1`}>
+                      Description
+                      <input name="description" maxLength={1000} defaultValue={current.description ?? ""} className={inputClass} />
+                    </label>
+                  </ActionForm>
+                  <ActionForm action={deleteVariant.bind(null, ctx.trip.id, current.id, current.version)}>
+                    <SubmitButton className={smallButton} pendingText="Deleting…">
+                      Delete this variant and its stops
+                    </SubmitButton>
+                  </ActionForm>
+                </>
+              )}
+            </div>
+          </details>
+        )}
+      </div>
+    </Card>
   );
 }
 
@@ -272,36 +407,49 @@ async function Itinerary({
   const [{ id }, query] = await Promise.all([params, searchParams]);
   const ctx = await loadTripContext(id);
   const supabase = await createClient();
-  const [itemsRes, votesRes, commentsRes, staysRes] = await Promise.all([
+  const [itemsRes, votesRes, commentsRes, quotesRes, variantsRes, placesRes] = await Promise.all([
     supabase
       .from("itinerary_items")
-      .select("id, day_number, time, duration_minutes, title, place_url, latitude, longitude, cost_minor, notes, created_by")
+      .select(
+        "id, day_number, time, duration_minutes, title, place_url, latitude, longitude, cost_minor, notes, created_by, version, variant_id, place_id, travel_minutes_from_previous",
+      )
       .eq("trip_id", id),
     supabase.from("stop_votes").select("item_id, user_id, vote").eq("trip_id", id),
     supabase.from("stop_comments").select("id, item_id, user_id, body, created_at").eq("trip_id", id).order("created_at"),
-    supabase.from("stays").select("id, name, url, latitude, longitude").eq("trip_id", id),
+    supabase.from("stay_quotes").select("id, name, source_url, latitude, longitude").eq("trip_id", id),
+    supabase.from("plan_variants").select("id, name, description, version").eq("trip_id", id).order("created_at"),
+    supabase.from("saved_places").select("id, name").eq("trip_id", id).order("name"),
   ]);
-  if (itemsRes.error || votesRes.error || commentsRes.error || staysRes.error) {
+  if (itemsRes.error || votesRes.error || commentsRes.error || quotesRes.error || variantsRes.error || placesRes.error) {
     throw new Error("Could not load the itinerary");
   }
 
-  const stops: Stop[] = (itemsRes.data ?? []).map((r) => ({
-    id: r.id,
-    day: r.day_number,
-    time: (r.time ?? "00:00").slice(0, 5),
-    duration: r.duration_minutes,
-    title: r.title,
-    placeUrl: r.place_url,
-    lat: r.latitude === null ? null : Number(r.latitude),
-    lng: r.longitude === null ? null : Number(r.longitude),
-    costMinor: r.cost_minor === null ? null : Number(r.cost_minor),
-    notes: r.notes,
-    createdBy: r.created_by,
-  }));
+  const variants = (variantsRes.data ?? []) as Variant[];
+  const requestedVariant = Array.isArray(query.variant) ? query.variant[0] : query.variant;
+  const current = variants.find((v) => v.id === requestedVariant && isUuid(v.id)) ?? null;
+  const places = (placesRes.data ?? []) as PlaceOption[];
+  const placeName = (pid: string | null | undefined) => places.find((p) => p.id === pid)?.name ?? null;
+
+  const stops: Stop[] = (itemsRes.data ?? [])
+    .filter((r) => (r.variant_id ?? null) === (current?.id ?? null))
+    .map((r) => ({
+      id: r.id,
+      day: r.day_number,
+      time: (r.time ?? "00:00").slice(0, 5),
+      duration: r.duration_minutes,
+      title: r.title,
+      placeUrl: r.place_url,
+      lat: r.latitude === null ? null : Number(r.latitude),
+      lng: r.longitude === null ? null : Number(r.longitude),
+      costMinor: r.cost_minor === null ? null : Number(r.cost_minor),
+      notes: r.notes,
+      createdBy: r.created_by,
+      version: r.version,
+      placeId: r.place_id,
+      travelMinutes: r.travel_minutes_from_previous,
+    }));
   const votesByStop: Record<string, Record<string, Vote>> = {};
-  for (const v of votesRes.data ?? []) {
-    (votesByStop[v.item_id] ??= {})[v.user_id] = v.vote as Vote;
-  }
+  for (const v of votesRes.data ?? []) (votesByStop[v.item_id] ??= {})[v.user_id] = v.vote as Vote;
   const commentsByStop: Record<string, Comment[]> = {};
   for (const c of (commentsRes.data ?? []) as Comment[]) (commentsByStop[c.item_id] ??= []).push(c);
 
@@ -311,13 +459,19 @@ async function Itinerary({
   const maxDay = days ?? Math.min(61, lastUsed + 1);
   const requested = Number(Array.isArray(query.day) ? query.day[0] : query.day);
   const day = Number.isInteger(requested) && requested >= 1 && requested <= dayCount ? requested : 1;
+  const variantParam = current ? `&variant=${current.id}` : "";
 
   const dayStops = sortStops(stops.filter((s) => s.day === day));
   const warnings = dayWarnings(dayStops);
   const warningFor = Object.fromEntries(warnings.map((w) => [w.stopId, w.message]));
   const distances = distancesFromPrevious(dayStops);
-  const places = toMapPlaces(
-    staysRes.data ?? [],
+  const located = dayStops.filter((s) => s.lat !== null && s.lng !== null);
+  const connectors: Connector[] = located.slice(1).map((s, i) => ({
+    from: [located[i].lat!, located[i].lng!],
+    to: [s.lat!, s.lng!],
+  }));
+  const mapPlaces = toMapPlaces(
+    (quotesRes.data ?? []).map((q) => ({ id: q.id, name: q.name, url: q.source_url, latitude: q.latitude, longitude: q.longitude })),
     dayStops.map((s) => ({
       id: s.id,
       title: s.title,
@@ -330,25 +484,27 @@ async function Itinerary({
   );
 
   return (
-    <>
+    <LiveTrip tripId={id} userId={ctx.userId} displayName={ctx.me.name}>
       <div className="flex flex-col gap-1">
         <Link href={`/trips/${id}?tab=shape`} className="text-sm text-zinc-600 underline dark:text-zinc-400">
           ← {ctx.trip.name}
         </Link>
         <h1 className="text-3xl font-semibold tracking-tight text-zinc-950 dark:text-zinc-50">Itinerary</h1>
         <Muted>
-          {days === null
-            ? "The trip has no dates yet, so days are numbered. Times are local to " + ctx.trip.timezone.replace(/_/g, " ") + "."
-            : `Times are local to ${ctx.trip.timezone.replace(/_/g, " ")}.`}
+          {days === null ? "The trip has no dates yet, so days are numbered. " : ""}
+          Times are local to {ctx.trip.timezone.replace(/_/g, " ")}.
         </Muted>
+        <LiveStatus />
       </div>
+
+      <Variants ctx={ctx} variants={variants} current={current} />
 
       <nav aria-label="Days">
         <ul className="flex gap-2 overflow-x-auto pb-1">
           {Array.from({ length: dayCount }, (_, i) => i + 1).map((d) => (
             <li key={d}>
               <Link
-                href={`/trips/${id}/itinerary?day=${d}`}
+                href={`/trips/${id}/itinerary?day=${d}${variantParam}`}
                 aria-current={d === day ? "page" : undefined}
                 className={`flex min-h-11 items-center whitespace-nowrap rounded-full px-4 text-sm font-medium ${
                   d === day
@@ -375,7 +531,10 @@ async function Itinerary({
 
       {dayStops.length === 0 ? (
         <Card>
-          <Muted>Nothing planned for {dayLabel(day, ctx.trip.startDate)} yet. Add the first stop below.</Muted>
+          <Muted>
+            Nothing planned for {dayLabel(day, ctx.trip.startDate)} in {current ? `"${current.name}"` : "the main plan"} yet. Add the
+            first stop below.
+          </Muted>
         </Card>
       ) : (
         <ul className="flex flex-col gap-4" aria-label={`Stops on ${dayLabel(day, ctx.trip.startDate)}`}>
@@ -389,17 +548,22 @@ async function Itinerary({
               distanceKm={distances[s.id]}
               warning={warningFor[s.id]}
               maxDay={maxDay}
+              variantId={current?.id ?? null}
+              places={places}
+              placeName={placeName(s.placeId)}
             />
           ))}
         </ul>
       )}
 
       <details open={dayStops.length === 0} className="rounded-xl border border-zinc-200 bg-white p-6 dark:border-zinc-800 dark:bg-zinc-950 max-md:p-4">
-        <summary className="cursor-pointer text-lg font-semibold text-zinc-950 dark:text-zinc-50">Add a stop</summary>
+        <summary className="cursor-pointer text-lg font-semibold text-zinc-950 dark:text-zinc-50">
+          Add a stop{current ? ` to "${current.name}"` : ""}
+        </summary>
         <div className="mt-4">
-          <ActionForm action={addStop.bind(null, id, maxDay)} className="flex flex-col gap-4" ariaLabel="Add a stop">
+          <ActionForm action={addStop.bind(null, id, maxDay, current?.id ?? null)} className="flex flex-col gap-4" ariaLabel="Add a stop">
             <ClientKey />
-            <StopFields ctx={ctx} maxDay={maxDay} day={day} />
+            <StopFields ctx={ctx} maxDay={maxDay} day={day} places={places} />
             <p className="text-sm text-zinc-500">It starts as a proposal; it&apos;s agreed once everyone votes for it.</p>
             <div>
               <SubmitButton className={smallPrimaryButton} pendingText="Adding…">
@@ -411,9 +575,9 @@ async function Itinerary({
       </details>
 
       <Card title={`Map · ${dayLabel(day, ctx.trip.startDate)}`}>
-        <TripMap places={places} />
+        <TripMap places={mapPlaces} connectors={connectors} />
       </Card>
-    </>
+    </LiveTrip>
   );
 }
 

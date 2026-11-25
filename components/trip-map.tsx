@@ -80,7 +80,9 @@ export function PlaceList({ places }: { places: MapPlace[] }) {
   );
 }
 
-export function TripMap({ places }: { places: MapPlace[] }) {
+export type Connector = { from: [number, number]; to: [number, number] };
+
+export function TripMap({ places, connectors = [] }: { places: MapPlace[]; connectors?: Connector[] }) {
   const container = useRef<HTMLDivElement>(null);
   const [status, setStatus] = useState<"loading" | "ready" | "failed">("loading");
 
@@ -132,6 +134,11 @@ export function TripMap({ places }: { places: MapPlace[] }) {
             .addTo(map);
         }
 
+        // Schematic only: straight dashed lines in visiting order, not routes.
+        for (const c of connectors) {
+          L.polyline([c.from, c.to], { color: "#71717a", weight: 2, dashArray: "6 6", interactive: false }).addTo(map);
+        }
+
         if (located.length === 1) {
           map.setView(bounds.getCenter(), MAX_FIT_ZOOM);
         } else {
@@ -154,13 +161,13 @@ export function TripMap({ places }: { places: MapPlace[] }) {
     };
     // `located` is derived from `places`, which is what should restart the map.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [places, hasMap]);
+  }, [places, connectors, hasMap]);
 
   if (places.length === 0) {
     return (
       <p className="text-base text-zinc-600 dark:text-zinc-400">
-        Nothing to show yet. Add a stay with a map location and it will appear
-        here.
+        Nothing to show on the map yet. Add a map location to a stay, place or
+        stop and it will appear here.
       </p>
     );
   }
@@ -201,6 +208,12 @@ export function TripMap({ places }: { places: MapPlace[] }) {
                 Itinerary
               </span>
             </span>
+            {connectors.length > 0 && (
+              <span className="flex items-center gap-1.5">
+                <span aria-hidden className="inline-block w-5 border-t-2 border-dashed border-zinc-500" />
+                Schematic order of stops: straight lines, not routes or travel times
+              </span>
+            )}
             {/* Always visible, as the OpenStreetMap licence requires. */}
             <a
               href={OSM_COPYRIGHT_URL}

@@ -19,6 +19,7 @@ export const MIGRATIONS = [
   "007_foundation.sql",
   "008_budget_privacy.sql",
   "009_itinerary.sql",
+  "010_places_quotes.sql",
 ];
 
 export function sqlFile(name: string): string {
