@@ -11,7 +11,101 @@ mock APIs, simulated AI or invented prices. Test fixtures exist only inside
 - Plan: [REAL_BUILD_PLAN.md](REAL_BUILD_PLAN.md) (screen map, provider
   dependencies, migration plan, seven-stage checklist)
 
-## Latest: Shape stage, PRD 05 itinerary + 06 map/comments (2026-11-25)
+## Latest: saved places, plan variants, stay quotes, budget categories, live layer (2026-11-25)
+
+**Live.** Migrations 010, 011 and 012 applied to `bbqsuwsloegyjutbefjd`;
+`feat/places-quotes-live` fast-forwarded to `main` at `8234367`; Vercel
+production deploy completed.
+
+### Built
+- **010** (PRD 04-06, 08): `saved_lists`, `saved_places`, `plan_variants`,
+  `budget_categories`, `stay_quotes`, `stay_quote_votes`. Every row belongs to
+  a trip, has creator/updater metadata and a `version`. Cross-row links use
+  composite `(id, trip_id)` foreign keys, so they cannot point into another
+  trip. Itinerary stops gain variant, saved place, member-entered travel
+  minutes, `updated_by`, `version`. All writes go through checked functions
+  with optimistic version checks; places and stays start empty.
+- **Stay quotes**: price stored exactly as quoted with an explicit basis
+  (per room per night, or total for the stay); `quoted_total_minor` is a
+  generated column, so a total is never multiplied again. Integer minor
+  units; blank taxes/fees are stored as NULL and shown as "Unknown" (the
+  total reads "at least …"). Another currency is compared only with a
+  recorded rate, rate date and source. Per-person shares reconcile exactly
+  (`splitExactly`). Transport is a separate per-person estimate, labelled as
+  one. Votes are opinions only: nothing books or refreshes a price.
+- **011** (Supabase only): shared tables in the `supabase_realtime`
+  publication (never private preferences); private `trip:<id>` channel
+  restricted to members by RLS on `realtime.messages`. Realtime only says
+  "something changed"; the page refetches from the database, including after
+  reconnect, a slow first connection, and when the tab becomes visible again.
+  Presence carries name and which stop is open, never preference values.
+- **Map**: Leaflet loaded client-side only, OSM attribution visible, list
+  fallback always shown. Straight connectors are labelled schematic; travel
+  time is "unknown" or "a member's estimate". No geocoding/autocomplete.
+- **012 fix** (see below).
+
+### Bug found live and fixed: stale saves hung forever
+- Symptom: on the itinerary, a save sometimes stayed on "Saving…" forever.
+- Evidence: the browser sent the action POST but never got a response;
+  `pg_stat_activity` showed the same `update_stop` RPC re-running every few
+  milliseconds from PostgREST, in an aborted transaction, holding row locks.
+- Cause: 010 raised "Someone else changed this first" with SQLSTATE `40001`
+  (serialization_failure). PostgREST retries 40001 automatically; a stale
+  version never becomes fresh, so it retried indefinitely. (My first guess,
+  `router.refresh()` from the live layer, was wrong.)
+- Fix: `supabase/012_stale_errcode.sql` redefines `private.stale()` to raise
+  the app code `VS409`; actions use `STALE_CODE` from `lib/db-errors.ts`.
+- Regression test (`tests/places-quotes-rls.test.ts`): a stale edit fails with
+  `VS409`, and no function in `public`/`private` raises a code PostgREST
+  retries (40001, 40P01). Without 012 it fails: `expected '40001' to be 'VS409'`.
+- After applying 012: no PostgREST transactions left open (the looping
+  requests ended on their next retry).
+
+### Applied and verified live (2026-11-25)
+- 010 + 011 + 012: each "Success. No rows returned". Post-checks:
+  `schema_versions` 1-12; 0 tables without RLS; 0 anon table reads; 0
+  SECURITY DEFINER functions with an unpinned search_path or anon execute;
+  `health_check` still anon-callable; old `delete_stop` not executable by
+  `authenticated`; direct insert into `stay_quotes` refused; the 9 shared
+  tables in the Realtime publication; both channel policies present;
+  `private.stale()` raises VS409 and is not executable by `authenticated`.
+- Two tabs, one account: an edit in tab A appeared in tab B within 5 s
+  without reloading (version 1 → 2).
+- Stale edit (submitted with version 1 while the stop was on 2): POST 200 in
+  4.5 s with "Someone else changed this first. Reload to see the latest
+  version, then try again."; nothing overwritten.
+- Places: empty state shown; list created; place with coordinates saved;
+  map rendered with "© OpenStreetMap contributors"; "Add to the itinerary"
+  → "Added to the itinerary as a proposal."
+- Quote: ₹4,500.50 per room per night × 2 rooms × 3 nights = ₹27,003; taxes
+  "Unknown", fees ₹1,500; "Total: at least ₹28,503 (taxes unknown)"; 7
+  sharing: ₹4,071.85, and "5 of 7 pay ₹4,071.86" so shares sum to ₹28,503.
+- Budget category: "Meals (live check) (Food) ₹3,000", planned total
+  ₹3,000 per person.
+- Note: these checks added real rows (a list, a place, a stop, a quote, a
+  category) to the test trip "Decide live check (renamed)".
+
+### Verified (exact commands, real results)
+- `npm run lint`: exit 0
+- `npx tsc --noEmit`: no errors
+- `npx vitest run`: 20 files, 246 tests passed
+- `npm run build`: succeeded
+- `npm run scan:secrets`: PASS (0 secret-looking values)
+
+### Not done / known limits
+- Presence ("Asha is editing this") is not verified live: it needs a second
+  real account (presence hides your own entry).
+- Reconnect/refetch is unit-tested (`tests/live.test.ts`), not tested with a
+  real network drop.
+- 011 is not run in PGlite (Supabase Realtime objects); its policies were
+  checked on production only.
+- Supabase showed an "investigating a technical issue" banner during these
+  checks; saves took 3.5-7.5 s.
+- Still outstanding from earlier stages: login provider choice (Google vs
+  email + SMTP), Email provider still enabled in Supabase, no test Supabase
+  project / `.env.test.local` for `npm run test:api`.
+
+## Earlier: Shape stage, PRD 05 itinerary + 06 map/comments (2026-11-25)
 
 **Live.** Migrations 008 and 009 applied to `bbqsuwsloegyjutbefjd`;
 `feat/shape-itinerary` merged to `main` at `0532800`; Vercel production
