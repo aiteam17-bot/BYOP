@@ -13,9 +13,46 @@ mock APIs, simulated AI or invented prices. Test fixtures exist only inside
 
 ## Latest: Tight/Balanced/Splurge, limited AI ideas, concierge proposals (2026-11-25)
 
-**Built and tested locally; NOT applied or deployed yet.** Branch
-`feat/plans-ai`. Needs migration 013 applied to production (your OK) before
-deploying: the new page reads its tables.
+**Live.** Migrations 013 and 014 applied to `bbqsuwsloegyjutbefjd`;
+`feat/plans-ai` fast-forwarded to `main` at `7e5fd71`; Vercel production
+deploy live. No AI key is configured, so AI ideas show as unavailable.
+
+### Bug found live and fixed: Plans page could not load
+- Symptom: after deploying 013, `/trips/[id]/plans` showed "We couldn't
+  load this trip".
+- Cause: `trips` uses column-level SELECT grants (007/008). 013 added
+  `plan_version`, `ai_ideas_opt_in_at`, `ai_ideas_opt_in_by` without
+  granting them, so members' reads were denied. The 013 tests read
+  `plan_version` as the superuser, so they missed it.
+- Fix: `supabase/014_plans_column_grants.sql` grants SELECT on those three
+  columns only (no write access).
+- Regression test reads them as a member; without 014 it fails with
+  `permission denied for table trips`.
+
+### Applied and verified live (2026-11-25)
+- 013: editor content matched the committed file (SHA-1); "Success. No
+  rows returned". Post-checks: versions 1-13; 0 tables without RLS; no anon
+  grants on the 4 new tables; authenticated has SELECT only on them; 0
+  SECURITY DEFINER functions with an unpinned search_path or anon execute;
+  `private.check_concierge_op` not executable by authenticated;
+  `plan_version` not updatable by authenticated; bump trigger present.
+- 014: "Success. No rows returned".
+- Plans page: empty state "No shapes saved yet"; "AI ideas are
+  unavailable" (no key) with links to manual editing, no generated text;
+  concierge "No open proposals".
+- Build the three shapes: "Tight, Balanced and Splurge saved…". With one
+  quote all three use it: stay ₹4,071.86 (largest share of the 7-way
+  split), Meals ₹3,000, stops ₹250 → "Known total: at least ₹7,321.86";
+  "Target: no bounds yet"; Missing (3): no confirmed bounds, villa taxes
+  unknown, no flights category.
+- Concierge: proposed moving "Chapora Fort (live check)" day 3 16:00 →
+  17:30; before/after shown; Accept submitted twice in a row → applied
+  once (stop at 17:30, one "Accepted" entry, no duplicate).
+- Stale: two proposals against the same plan (→16:00, →18:00); accepting
+  →18:00 applied it; accepting →16:00 then did nothing and it is listed
+  "Went stale (plan changed)"; the stop stayed at 18:00.
+- These checks added rows to the test trip "Decide live check (renamed)"
+  (one set of shapes, three proposals, the stop moved).
 
 ### Built
 - **Migration 013** (`supabase/013_plans_ai_concierge.sql`, additive):
@@ -68,7 +105,7 @@ deploying: the new page reads its tables.
 ### Verified (exact commands, real results)
 - `npm run lint`: clean
 - `npx tsc --noEmit`: no errors
-- `npx vitest run`: 24 files, 290 tests passed. New:
+- `npx vitest run`: 24 files, 291 tests passed (290 + the 014 regression). New:
   `tests/plans-ai-concierge-rls.test.ts` (13: permissions, outsiders,
   rate limits, request cap, one-shot finish, idea confirmation, malformed
   and unbounded patches, idempotent Accept, stale proposals, rollback when
@@ -80,7 +117,12 @@ deploying: the new page reads its tables.
 - `npm run scan:secrets`: PASS
 
 ### Not done / known limits
-- Not live: 013 not applied, page not deployed, nothing checked in a browser.
+- The stale-proposal error text was not captured live (the browser
+  automation timed out); the outcome (not applied, marked stale) was.
+  After a refused Accept the proposal moves to "Recently decided", so its
+  error line disappears with it.
+- The double Accept caused a full page navigation (a native form post
+  after React re-rendered the form); the result was still applied once.
 - No real Gemini request has been made (no key configured). The adapter
   is tested only against recorded fake responses.
 - The concierge does not take free-text commands: sending the plan or chat
