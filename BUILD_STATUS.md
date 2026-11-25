@@ -11,7 +11,85 @@ mock APIs, simulated AI or invented prices. Test fixtures exist only inside
 - Plan: [REAL_BUILD_PLAN.md](REAL_BUILD_PLAN.md) (screen map, provider
   dependencies, migration plan, seven-stage checklist)
 
-## Latest: saved places, plan variants, stay quotes, budget categories, live layer (2026-11-25)
+## Latest: Tight/Balanced/Splurge, limited AI ideas, concierge proposals (2026-11-25)
+
+**Built and tested locally; NOT applied or deployed yet.** Branch
+`feat/plans-ai`. Needs migration 013 applied to production (your OK) before
+deploying: the new page reads its tables.
+
+### Built
+- **Migration 013** (`supabase/013_plans_ai_concierge.sql`, additive):
+  - `trips.plan_version`, bumped by a trigger on every itinerary change;
+    members cannot write it.
+  - `plan_shapes`: saved Tight/Balanced/Splurge. They store choices (which
+    stay quote) and an input snapshot read inside the database function
+    (dates, confirmed bounds, quote and category versions). No amounts are
+    stored, so none can be invented; numbers are recomputed in code.
+  - Limited AI: per-trip opt-in (organiser/co-planner), `ai_requests`
+    rate-limit ledger (5/hour per person per trip, 20/day per person, 30/day
+    per trip, one at a time; request size cap 2 KB; no prompt or response
+    text stored), `ai_suggestions` (always "unverified" until a member
+    confirms place link, opening hours, time needed and price).
+  - `concierge_proposals`: bounded patch (1-10 ops: add_stop, move_stop,
+    remove_stop; strict field and type checks). `accept_proposal` locks the
+    proposal and trip, returns `stale` if the plan version moved, re-checks
+    the accepter's permission per op, applies everything in one transaction,
+    and returns `already_applied` on repeat. "Not now" sets it aside.
+- **Plans page** `/trips/[id]/plans` (linked from the Shape tab):
+  - Tight / Balanced / Splurge from real inputs (`lib/plan-shapes.ts`):
+    cheapest / lower-middle / dearest comparable quote; targets = confirmed
+    min / midpoint / max; categories + member-entered stop costs; exact
+    integer maths; "Unknown" and "at least" where amounts are missing; a
+    "Missing" list; "Out of date: …" when inputs changed.
+  - Ideas (limited AI): with no key, says "AI ideas are unavailable" and
+    points to manual editing; nothing is simulated. Shows exactly what is
+    sent and what never is.
+  - Concierge: propose move/remove/add-confirmed-idea; before/after per
+    day; Accept / Not now; stale warning. In limited mode no model writes
+    proposals (the plan itself is never sent to the unpaid service).
+- **Gemini adapter** (`lib/ai/gemini.ts`, server-only): needs
+  `AI_IDEAS_ENABLED=true`, `GEMINI_API_KEY`, `GEMINI_MODEL` (no default).
+  Fixed prompt, request JSON as data, JSON response schema, 1024 output
+  tokens, 20 s timeout, 64 KB response cap. Errors mapped to plain messages
+  (quota, model unavailable, rejected key, timeout, blocked, malformed,
+  too large); provider text is never shown.
+- **Allowlist** (`lib/ai/generic-request.ts`): destination (letters, up to
+  4 words/40 chars, refused if it contains a member's name), month only,
+  group size band, pace, up to 3 interests from the fixed list. Re-checked
+  at the adapter boundary. Never sent: budgets or anything derived,
+  exact dates or itinerary, names, emails, comments, food/health notes,
+  bookings, files, expenses, free-text preferences.
+- **Output** (`lib/ai/ideas.ts`): fixed fields only, 8 max, control
+  characters stripped, categories from a fixed list, links https-only with
+  no credentials/ports/IPs/local hosts and shown as "unverified", never
+  fetched. Ranked locally by the requester's own interests; ideas the trip
+  already has are dropped.
+
+### Verified (exact commands, real results)
+- `npm run lint`: clean
+- `npx tsc --noEmit`: no errors
+- `npx vitest run`: 24 files, 290 tests passed. New:
+  `tests/plans-ai-concierge-rls.test.ts` (13: permissions, outsiders,
+  rate limits, request cap, one-shot finish, idea confirmation, malformed
+  and unbounded patches, idempotent Accept, stale proposals, rollback when
+  the accepter lacks permission), `tests/ai-limited.test.ts` (16: allowlist,
+  missing key makes no request, exact request body, quota/404/403/500,
+  malformed/truncated/blocked/oversize output, timeout, URL safety),
+  `tests/plan-shapes.test.ts` (12), `tests/concierge.test.ts` (6).
+- `npm run build`: succeeded (`/trips/[id]/plans` partial prerender)
+- `npm run scan:secrets`: PASS
+
+### Not done / known limits
+- Not live: 013 not applied, page not deployed, nothing checked in a browser.
+- No real Gemini request has been made (no key configured). The adapter
+  is tested only against recorded fake responses.
+- The concierge does not take free-text commands: sending the plan or chat
+  to the unpaid service is not allowed, and personal-context AI needs a
+  separately reviewed provider/data-processing decision.
+- Plan shapes and proposals are not in the Realtime publication; others
+  see them on their next load or action.
+
+## Earlier: saved places, plan variants, stay quotes, budget categories, live layer (2026-11-25)
 
 **Live.** Migrations 010, 011 and 012 applied to `bbqsuwsloegyjutbefjd`;
 `feat/places-quotes-live` fast-forwarded to `main` at `8234367`; Vercel

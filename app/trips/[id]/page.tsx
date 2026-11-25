@@ -172,6 +172,9 @@ async function ShapeTab({ tripId, ctx }: { tripId: string; ctx: TripContext }) {
             <Link href={`/trips/${tripId}/places`} className={smallPrimaryButton}>
               Saved places
             </Link>
+            <Link href={`/trips/${tripId}/plans`} className={smallPrimaryButton}>
+              Tight / Balanced / Splurge
+            </Link>
           </div>
         </div>
       </Card>
