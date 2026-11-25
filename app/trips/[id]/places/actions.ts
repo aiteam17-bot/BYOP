@@ -7,8 +7,9 @@ import { parseCoordinates } from "@/lib/map-config";
 import { createClient } from "@/lib/supabase/server";
 import { safeHttpUrl } from "@/lib/url";
 import { isRealDate, isUuid } from "@/lib/validation";
+import { SAFE_CODES, STALE_CODE } from "@/lib/db-errors";
 
-const SAFE = new Set(["42501", "22023", "P0002", "40001"]);
+const SAFE = SAFE_CODES;
 
 async function db() {
   const supabase = await createClient();
@@ -27,7 +28,7 @@ async function finish(
 ): Promise<ActionState> {
   const { error } = await result;
   if (error) {
-    if (error.code === "40001") revalidatePath(`/trips/${tripId}`, "layout");
+    if (error.code === STALE_CODE) revalidatePath(`/trips/${tripId}`, "layout");
     return { error: error.code && SAFE.has(error.code) ? error.message : "That didn't work. Please try again." };
   }
   revalidatePath(`/trips/${tripId}`, "layout");

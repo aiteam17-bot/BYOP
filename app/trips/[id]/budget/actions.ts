@@ -5,6 +5,7 @@ import { redirect } from "next/navigation";
 import type { ActionState } from "@/components/action-form";
 import { createClient } from "@/lib/supabase/server";
 import { isUuid, parseBudgetRange, parseRupees } from "@/lib/validation";
+import { STALE_CODE } from "@/lib/db-errors";
 
 // Your range is written only to YOUR preferences row (RLS: owner only). Other
 // people learn about it only through trip_budget_band(), which releases a
@@ -20,7 +21,7 @@ async function signedIn() {
 }
 
 function message(error: { code?: string; message: string }): string {
-  if (error.code === "22023" || error.code === "42501" || error.code === "40001" || error.code === "P0002") return error.message;
+  if (error.code === "22023" || error.code === "42501" || error.code === STALE_CODE || error.code === "P0002") return error.message;
   if (error.code === "23514") return "Check the amounts: the minimum must be at most the maximum.";
   return "That didn't work. Please try again.";
 }
@@ -144,7 +145,7 @@ export async function updateCategory(tripId: string, id: string, prev: ActionSta
     _expected_version: v,
   });
   if (error) {
-    if (error.code === "40001") revalidatePath(`/trips/${tripId}`, "layout");
+    if (error.code === STALE_CODE) revalidatePath(`/trips/${tripId}`, "layout");
     return { error: message(error) };
   }
   revalidatePath(`/trips/${tripId}`, "layout");

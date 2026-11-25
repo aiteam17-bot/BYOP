@@ -6,12 +6,13 @@ import type { ActionState } from "@/components/action-form";
 import { parseQuoteForm } from "@/lib/quote-input";
 import { createClient } from "@/lib/supabase/server";
 import { isUuid } from "@/lib/validation";
+import { SAFE_CODES, STALE_CODE } from "@/lib/db-errors";
 
 // Quotes are written only through create_quote / update_quote / delete_quote /
 // vote_quote, which check membership, authorship and the version, validate
 // again and run as one transaction. Voting books nothing.
 
-const SAFE = new Set(["42501", "22023", "P0002", "40001"]);
+const SAFE = SAFE_CODES;
 
 async function db() {
   const supabase = await createClient();
@@ -30,7 +31,7 @@ async function finish(
 ): Promise<ActionState> {
   const { error } = await result;
   if (error) {
-    if (error.code === "40001") revalidatePath(`/trips/${tripId}`, "layout");
+    if (error.code === STALE_CODE) revalidatePath(`/trips/${tripId}`, "layout");
     return { error: error.code && SAFE.has(error.code) ? error.message : "That didn't work. Please try again." };
   }
   revalidatePath(`/trips/${tripId}`, "layout");

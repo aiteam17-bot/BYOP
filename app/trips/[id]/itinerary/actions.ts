@@ -6,13 +6,14 @@ import type { ActionState } from "@/components/action-form";
 import { parseStopForm } from "@/lib/itinerary";
 import { createClient } from "@/lib/supabase/server";
 import { isUuid } from "@/lib/validation";
+import { SAFE_CODES, STALE_CODE } from "@/lib/db-errors";
 
 // Every action: session check here, then ONE database function that checks
 // trip membership and role, validates again and runs as a transaction.
-// Edits carry the version the person saw; 40001 means someone else changed
+// Edits carry the version the person saw; STALE_CODE means someone else changed
 // it first, and we say so instead of overwriting their change.
 
-const SAFE = new Set(["42501", "22023", "P0002", "40001"]);
+const SAFE = SAFE_CODES;
 
 async function db() {
   const supabase = await createClient();
@@ -32,7 +33,7 @@ async function finish(
   const { error } = await result;
   if (error) {
     // Show the latest data behind a conflict message straight away.
-    if (error.code === "40001") revalidatePath(`/trips/${tripId}`, "layout");
+    if (error.code === STALE_CODE) revalidatePath(`/trips/${tripId}`, "layout");
     return { error: error.code && SAFE.has(error.code) ? error.message : "That didn't work. Please try again." };
   }
   revalidatePath(`/trips/${tripId}`, "layout");

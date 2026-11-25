@@ -2,6 +2,7 @@
 // links, optimistic versions (two users editing) and stay-quote rules.
 import type { PGlite } from "@electric-sql/pglite";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
+import { RETRIED_BY_POSTGREST, STALE_CODE } from "@/lib/db-errors";
 import { ALICE, BOB, CAROL, ERIN, asUser, createDb, inviteAndJoin } from "./helpers/db";
 
 const BLOCKED = /row-level security|permission denied/;
@@ -161,6 +162,27 @@ describe("plan variants and stops", () => {
     await asUser(db, ERIN, `select update_stop($1, 2, '11:00', 60, 'Market', null, null, null, null, null, $2)`, [stop, v2]);
     await expect(rows(BOB, `select delete_stop_checked($1, $2)`, [stop, v2])).rejects.toThrow(STALE);
     await expect(rows(BOB, `select delete_stop($1)`, [stop])).rejects.toThrow(BLOCKED);
+  });
+
+  // Regression: 010 raised 40001 for a stale version. PostgREST retries 40001
+  // automatically, so in production a stale save retried forever and the
+  // request never returned. The code must be one nothing retries.
+  it("a stale edit fails with the app's own code, never one PostgREST retries", async () => {
+    const stop = (await one<{ id: string }>(BOB, `select add_stop($1, 2, '15:00', 60, 'Cafe') as id`, [trip])).id;
+    const err = await rows(ERIN, `select update_stop($1, 2, '16:00', 60, 'Cafe', null, null, null, null, null, 99)`, [stop]).then(
+      () => null,
+      (e: { code?: string; message: string }) => e,
+    );
+    expect(err?.message).toMatch(STALE);
+    expect(err?.code).toBe(STALE_CODE);
+    expect(RETRIED_BY_POSTGREST).not.toContain(err?.code);
+    // No function in the final schema raises a code PostgREST would retry.
+    const offenders = await db.query<{ name: string }>(
+      `select p.proname as name from pg_proc p join pg_namespace n on n.oid = p.pronamespace
+       where n.nspname in ('public', 'private') and p.prosrc ~* $1`,
+      [`errcode\\s*=\\s*'(${RETRIED_BY_POSTGREST.join("|")})'`],
+    );
+    expect(offenders.rows).toEqual([]);
   });
 
   it("deleting a variant removes its stops", async () => {
